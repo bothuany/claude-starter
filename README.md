@@ -42,7 +42,7 @@ Then, in a session:
 | `monthly-review` | Skill (you run it) plus a session-start reminder | Runs `/insights`, checks its suggestions against your setup, applies at most two after you choose, and prunes auto memory. The reminder appears once a day when the review is due |
 | context7 | MCP server (HTTP, no key needed) | Current library documentation. Add an API key yourself for higher rate limits ([context7](https://github.com/upstash/context7)) |
 
-**Context cost, measured.** The rules are about 500 tokens. The plugin's skill and agent descriptions add about 290 more (`claude plugin details starter`). context7's tool schemas come on top, and Claude Code loads them on demand. The SessionStart hook adds nothing to the context. If you already have a context7 server of your own, you'll now have two: remove one.
+**Context cost, measured.** The rules are about 500 tokens. The plugin's skill and agent descriptions add about 370 more (`claude plugin details starter`). context7's tool schemas come on top, and Claude Code loads them on demand. The SessionStart hook adds nothing to the context. If you already have a context7 server of your own, you'll now have two: remove one.
 
 Optional:
 
