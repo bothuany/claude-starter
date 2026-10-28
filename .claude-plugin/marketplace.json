@@ -1,0 +1,18 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
+  "name": "claude-starter",
+  "description": "A small, opinionated user-level Claude Code setup.",
+  "owner": { "name": "Batuhan Dikmen" },
+  "plugins": [
+    {
+      "name": "starter",
+      "source": "./plugins/starter",
+      "description": "Working rules, safe parallel fan-out, safe worktree cleanup, context7 MCP."
+    },
+    {
+      "name": "i-have-adhd",
+      "source": { "source": "github", "repo": "ayghri/i-have-adhd", "ref": "v0.4.1", "sha": "1ecea1993b7fce257ffbd686c070948b5e07eda6" },
+      "description": "Optional, third party (ayghri/i-have-adhd, MIT): action-first output - the next step first, numbered steps, no tangents."
+    }
+  ]
+}

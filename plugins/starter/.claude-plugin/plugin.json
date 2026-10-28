@@ -1,0 +1,10 @@
+{
+  "name": "starter",
+  "displayName": "claude-starter",
+  "version": "0.1.0",
+  "description": "A small, opinionated user-level setup: ask-before-assuming and verify-before-done rules, safe parallel fan-out with worktree-isolated Sonnet workers, safe worktree cleanup, and the context7 MCP.",
+  "author": { "name": "Batuhan Dikmen", "url": "https://github.com/bothuany" },
+  "repository": "https://github.com/bothuany/claude-starter",
+  "license": "MIT",
+  "keywords": ["orchestration", "subagents", "worktrees", "starter"]
+}
