@@ -1,4 +1,4 @@
-// Regression tests for the starter's scripts, run in throwaway repositories and config dirs: `node --test test/`.
+// Regression tests for the starter's scripts, run in throwaway repositories and config dirs: `node --test test/scripts.test.mjs`.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -246,4 +246,40 @@ test('review counts memory lines as Claude Code loads them and decodes the repor
   mkdirSync(join(dir, 'usage-data'))
   writeFileSync(join(dir, 'usage-data', 'report-1.html'), '<script>x()</script><p>Use &#x27;git&#x27; &amp; ok&nbsp;now &#99999999;</p>')
   assert.equal(run('review.mjs', ['report', '--data', env.CLAUDE_PLUGIN_DATA], dir, env).out, "Use 'git' & ok now &#99999999;")
+})
+
+test('remove keeps a worktree with gitignored files unless --include-ignored', () => {
+  const { repo, wt } = repoWithWorktree()
+  writeFileSync(join(repo, '.gitignore'), '.env.local\nnode_modules/\n')
+  git(repo, 'add', '.gitignore')
+  git(repo, 'commit', '-qm', 'ignore')
+  git(wt, 'merge', '-q', 'main')
+  writeFileSync(join(wt, '.env.local'), 'SECRET=1')
+  // A linked node_modules is not the worktree's own data and must not hold the removal back.
+  mkdirSync(join(repo, 'node_modules'))
+  link(join(repo, 'node_modules'), join(wt, 'node_modules'))
+  const listed = JSON.parse(worktrees(repo, 'list').out).worktrees[0]
+  assert.deepEqual(listed.ignoredFiles, ['.env.local'])
+  assert.match(worktrees(repo, 'remove', wt).out, /skipped .*gitignored files .*\.env\.local.*--include-ignored/)
+  assert.ok(existsSync(join(wt, '.env.local')))
+  assert.match(worktrees(repo, 'remove', '--include-ignored', wt).out, /removed /)
+  assert.ok(!existsSync(wt))
+  assert.ok(existsSync(join(repo, 'node_modules')))
+})
+
+test('setup sets worktree.baseRef for the project by default, for the user with --scope user', () => {
+  const { dir, env } = configDir()
+  const project = mkdtempSync(join(tmpdir(), 'starter-project-'))
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ theme: 'dark' }))
+  run('setup.mjs', ['apply', '--base-ref', 'head'], project, env)
+  const local = JSON.parse(readFileSync(join(project, '.claude', 'settings.local.json'), 'utf8'))
+  assert.equal(local.worktree.baseRef, 'head')
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { theme: 'dark' })
+  run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'user'], project, env)
+  assert.equal(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).worktree.baseRef, 'head')
+  // A project file that says otherwise wins, and setup says so.
+  mkdirSync(join(project, 'sub', '.claude'), { recursive: true })
+  writeFileSync(join(project, 'sub', '.claude', 'settings.local.json'), JSON.stringify({ worktree: { baseRef: 'fresh' } }))
+  assert.match(run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'user'], join(project, 'sub'), env).out, /higher-precedence .* "fresh"/)
+  assert.equal(run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'team'], project, env).status, 1)
 })

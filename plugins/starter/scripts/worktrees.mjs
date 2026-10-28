@@ -2,7 +2,9 @@
 // Safe cleanup of git worktrees and merged branches, run from inside a repository.
 //
 //   node worktrees.mjs list [--into <ref>]                   every linked worktree and local branch, as JSON
-//   node worktrees.mjs remove [--force-locked] <path>...     remove clean worktrees (locked ones only when forced)
+//   node worktrees.mjs remove [--force-locked] [--include-ignored] <path>...
+//                                                            remove clean worktrees (locked ones, and ones holding
+//                                                            gitignored files such as .env.local, only when forced)
 //   node worktrees.mjs delete-branches [--into <ref>] <name>...   delete branches already merged into <ref>
 //
 // "Merged" means merged into --into, or by default into the local default branch (main or master, or the local
@@ -129,6 +131,22 @@ function dirtyFiles(worktree) {
   return paths.filter(path => !underLink(worktree, path) && !(path.endsWith('/') && onlyLinks(join(worktree, path))))
 }
 
+// Gitignored paths in a worktree, such as .env.local or a local config, leaving out links and what is under them.
+// git can't recover these after a removal, so they are reported and removing needs --include-ignored. git collapses
+// an ignored folder to "dir/". Returns null when git can't read the status.
+function ignoredFiles(worktree) {
+  let out
+  try {
+    out = execFileSync('git', ['status', '--porcelain', '-z', '--ignored=matching', '--untracked-files=normal'], { cwd: worktree, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch {
+    return null
+  }
+  return out.split('\0')
+    .filter(token => token.startsWith('!! '))
+    .map(token => token.slice(3))
+    .filter(path => !underLink(worktree, path) && !(path.endsWith('/') && onlyLinks(join(worktree, path))))
+}
+
 // True when dir holds no files of its own: only links and folders that hold only links. Links are not followed.
 // A folder that can't be read counts as holding files.
 function onlyLinks(dir) {
@@ -156,18 +174,28 @@ function detachedAndUnreachable(w) {
 }
 
 // Windows can't rename a folder that a process works in or holds a file open in. Checking that first keeps a busy
-// worktree whole: otherwise git deletes part of it before it fails.
+// worktree whole: otherwise git deletes part of it before it fails. Returns 'free', 'busy', or the path the folder
+// is stranded at when it moved but couldn't be moved back (an antivirus or indexer can grab it in between).
 function inUse(path) {
   if (!isWin) {
-    return false
+    return 'free'
   }
+  const probe = `${path}.starter-check`
   try {
-    renameSync(path, `${path}.starter-check`)
-    renameSync(`${path}.starter-check`, path)
-    return false
+    renameSync(path, probe)
   } catch {
-    return true
+    return 'busy'
   }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      renameSync(probe, path)
+      return 'free'
+    } catch {
+      // A short wait for whatever opened it to let go.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200)
+    }
+  }
+  return probe
 }
 
 function removeLink(path) {
@@ -186,11 +214,13 @@ function list(into) {
   for (const w of linked) {
     const missing = !existsSync(w.path)
     const dirty = missing ? null : dirtyFiles(w.path)
+    const ignored = missing || dirty === null ? null : ignoredFiles(w.path)
     result.worktrees.push({
       path: w.path,
       branch: w.branch ?? '(detached)',
       merged: w.head ? tryGit(['merge-base', '--is-ancestor', w.head, base]) !== null : null,
       dirtyFiles: dirty === null ? null : dirty.length,
+      ignoredFiles: ignored === null ? null : ignored.slice(0, 10),
       statusUnreadable: !missing && dirty === null,
       unreachableCommits: detachedAndUnreachable(w),
       locked: Boolean(w.locked),
@@ -208,7 +238,7 @@ function list(into) {
 }
 
 // One worktree; returns the line to print.
-function removeOne(entry, forceLocked) {
+function removeOne(entry, forceLocked, includeIgnored) {
   if (entry.locked && !forceLocked) {
     // Claude Code locks the worktree of a running agent or background session; a lock is never overridden quietly.
     return `skipped ${entry.path}: it is locked (a running session may be using it); pass --force-locked to remove it anyway`
@@ -231,8 +261,20 @@ function removeOne(entry, forceLocked) {
   if (dirty.length) {
     return `skipped ${entry.path}: it has uncommitted changes or untracked files`
   }
-  if (inUse(entry.path)) {
+  const ignored = ignoredFiles(entry.path)
+  if (ignored === null) {
+    return `skipped ${entry.path}: git could not read its status`
+  }
+  if (ignored.length && !includeIgnored) {
+    const sample = ignored.slice(0, 5).join(', ') + (ignored.length > 5 ? `, and ${ignored.length - 5} more` : '')
+    return `skipped ${entry.path}: it holds gitignored files that would be lost (${sample}); pass --include-ignored to remove them too`
+  }
+  const probe = inUse(entry.path)
+  if (probe === 'busy') {
     return `skipped ${entry.path}: a program is using a folder or file inside it; close it and run remove again`
+  }
+  if (probe !== 'free') {
+    return `failed ${entry.path}: the in-use check moved it to ${probe} and couldn't move it back. Nothing was deleted. Rename ${probe} back to ${entry.path} once nothing holds it, then run remove again.`
   }
   const links = findLinks(entry.path)
   links.forEach(removeLink)
@@ -262,7 +304,7 @@ function removeOne(entry, forceLocked) {
   return `removed ${entry.path}${links.length ? ` (${links.length} link(s) unlinked first)` : ''}`
 }
 
-function remove(paths, forceLocked) {
+function remove(paths, forceLocked, includeIgnored) {
   const known = worktrees()
   try {
     for (const path of paths) {
@@ -272,7 +314,7 @@ function remove(paths, forceLocked) {
         continue
       }
       try {
-        console.log(removeOne(entry, forceLocked))
+        console.log(removeOne(entry, forceLocked, includeIgnored))
       } catch (error) {
         console.log(`skipped ${entry.path}: ${error.message}`)
       }
@@ -308,12 +350,13 @@ function deleteBranches(names, into) {
   }
 }
 
-const usage = 'usage: worktrees.mjs list [--into <ref>] | remove [--force-locked] <path>... | delete-branches [--into <ref>] <name>...'
+const usage = 'usage: worktrees.mjs list [--into <ref>] | remove [--force-locked] [--include-ignored] <path>... | delete-branches [--into <ref>] <name>...'
 const [command, ...args] = process.argv.slice(2)
 const forceLocked = args.includes('--force-locked')
+const includeIgnored = args.includes('--include-ignored')
 const intoAt = args.indexOf('--into')
 const into = intoAt === -1 ? '' : args[intoAt + 1] ?? ''
-const targets = args.filter((arg, i) => arg !== '--force-locked' && arg !== '--into' && (intoAt === -1 || i !== intoAt + 1))
+const targets = args.filter((arg, i) => !['--force-locked', '--include-ignored', '--into'].includes(arg) && (intoAt === -1 || i !== intoAt + 1))
 try {
   if (intoAt !== -1 && (!into || into.startsWith('--'))) {
     throw new Error('--into needs a ref')
@@ -321,7 +364,7 @@ try {
   if (command === 'list') {
     console.log(JSON.stringify(list(into), null, 2))
   } else if (command === 'remove' && targets.length) {
-    remove(targets, forceLocked)
+    remove(targets, forceLocked, includeIgnored)
   } else if (command === 'delete-branches' && targets.length) {
     deleteBranches(targets, into)
   } else {

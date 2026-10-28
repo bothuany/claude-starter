@@ -20,7 +20,7 @@ Show the split as a short table (part, files owned, contract it uses) and ask fo
 
 - Note the current branch and its commit (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`) before you change anything: the review in step 5 covers everything since that commit, and cleanup checks merges into that branch.
 - Write the shared pieces yourself in the main session (types, interfaces, ids, manifest entries; a stub implementation is fine), run the project's checks, and commit on the current branch.
-- Workers branch from the local HEAD when the effective `worktree.baseRef` is `"head"`, or when the repository has no remote. The effective value is the first one set in this order: the project's `.claude/settings.local.json`, the project's `.claude/settings.json`, then the user's `~/.claude/settings.json` (`/starter:setup` sets the user one). Otherwise workers start from the remote default branch and won't see the contract: stop and say so, and offer to set `baseRef` for this project.
+- Workers branch from the local HEAD when the effective `worktree.baseRef` is `"head"`, or when the repository has no remote. The effective value is the first one set in this order: the project's `.claude/settings.local.json`, the project's `.claude/settings.json`, then the user's `~/.claude/settings.json`. Otherwise workers start from the remote default branch and won't see the contract: stop and say so, and offer to set it for this project only (`/starter:setup` does that in the project's `.claude/settings.local.json`, so other projects keep starting `claude --worktree` sessions from a clean default branch).
 - A worktree is a fresh checkout without installed dependencies. Decide how workers run checks before spawning: the project's `.worktreeinclude` or `worktree.symlinkDirectories` setting, an install command that is cheap enough to run per worker, or checks that need no install. Put the answer in every brief.
 
 ## 3. Spawn
@@ -52,4 +52,4 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/worktrees.mjs" remove <worker worktree paths
 node "${CLAUDE_PLUGIN_ROOT}/scripts/worktrees.mjs" delete-branches --into <branch from step 2> <worker branches>
 ```
 
-Leave unmerged workers' worktrees in place and name them in the report. If `.claude/worktrees/` shows up as untracked in `git status`, suggest adding it to `.gitignore`. Don't push or open a PR unless asked.
+If `remove` skips a worker because it holds gitignored files, look at the list it prints. Build output, caches and copies made by `.worktreeinclude` are safe to lose in a merged worker: run `remove --include-ignored` for that worker and say so in the report. Anything else, ask first. Leave unmerged workers' worktrees in place and name them in the report. If `.claude/worktrees/` shows up as untracked in `git status`, suggest adding it to `.gitignore`. Don't push or open a PR unless asked.

@@ -3,10 +3,12 @@
 // and only when the /starter:setup skill has shown the plan and the user agreed.
 //
 //   node setup.mjs check [--data <plugin data dir>]   report what is installed, as JSON
-//   node setup.mjs apply [--rules | --skip-rules] [--base-ref head|fresh] [--obscura] [--data <plugin data dir>]
+//   node setup.mjs apply [--rules | --skip-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura]
+//                        [--data <plugin data dir>]
 //
 // Everything it writes lives in the Claude config dir (CLAUDE_CONFIG_DIR or ~/.claude), plus a "rules skipped" flag
-// in the plugin's data dir. Files it changes are backed up next to themselves first, with a timestamp, so no backup
+// in the plugin's data dir, user-scope MCP servers (context7, obscura) through `claude mcp add`, and, for
+// --base-ref with the default project scope, the current project's .claude/settings.local.json. Files it changes are backed up next to themselves first, with a timestamp, so no backup
 // is ever overwritten. The rules go between markers, so re-running replaces them in place and nothing else in the
 // user's CLAUDE.md is touched; markers that are unbalanced or out of order are reported and left alone.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -93,8 +95,17 @@ function claude(args) {
 
 const failure = result => (result.stderr || result.error?.message || `exit ${result.status}`).trim()
 
-function obscuraRegistered() {
-  return claude(['mcp', 'get', 'obscura']).status === 0
+// Registered in any scope: a context7 the user added themselves counts, so setup never adds a second one.
+const mcpRegistered = name => claude(['mcp', 'get', name]).status === 0
+
+// The settings files for worktree.baseRef, lowest precedence first: user, then the project's shared and local files.
+const projectSettings = name => join(process.cwd(), '.claude', name)
+function baseRefs() {
+  const read = file => readSettings(file, file === settingsFile).worktree?.baseRef ?? null
+  const user = read(settingsFile)
+  const project = read(projectSettings('settings.json'))
+  const local = read(projectSettings('settings.local.json'))
+  return { user, project, local, effective: local ?? project ?? user ?? 'fresh (default)' }
 }
 
 // Enabled in the effective settings: the project's local settings override its shared ones, which override the user's.
@@ -105,15 +116,17 @@ function adhdInstalled() {
 }
 
 function check(dataDir) {
-  const settings = readSettings()
+  readSettings()
   return {
     configDir,
+    project: process.cwd(),
     node: process.version,
     rules: blockState(),
     rulesSkipped: rulesSkipped(dataDir),
-    worktreeBaseRef: settings.worktree?.baseRef ?? 'fresh (default)',
+    worktreeBaseRef: baseRefs(),
+    context7Mcp: mcpRegistered('context7'),
     obscuraBinary: findObscura() || null,
-    obscuraMcp: obscuraRegistered(),
+    obscuraMcp: mcpRegistered('obscura'),
     iHaveAdhd: adhdInstalled(),
   }
 }
@@ -151,12 +164,29 @@ function apply(options) {
   }
 
   if (options.baseRef) {
-    const settings = readSettings()
+    // Project scope writes the project's own, personal settings.local.json, so `claude --worktree` sessions in
+    // other projects keep starting from a clean default branch.
+    const file = options.scope === 'user' ? settingsFile : projectSettings('settings.local.json')
+    const settings = readSettings(file)
     if (settings.worktree?.baseRef !== options.baseRef) {
-      backup(settingsFile)
+      backup(file)
+      mkdirSync(join(file, '..'), { recursive: true })
       settings.worktree = { ...settings.worktree, baseRef: options.baseRef }
-      writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n')
-      done.push(`worktree.baseRef set to "${options.baseRef}" in ${settingsFile}`)
+      writeFileSync(file, JSON.stringify(settings, null, 2) + '\n')
+      done.push(`worktree.baseRef set to "${options.baseRef}" in ${file}`)
+    }
+    const effective = baseRefs().effective
+    if (effective !== options.baseRef) {
+      done.push(`note: a higher-precedence settings file still sets worktree.baseRef to "${effective}" for this project`)
+    }
+  }
+
+  if (options.context7) {
+    if (mcpRegistered('context7')) {
+      done.push('context7 MCP already registered')
+    } else {
+      const add = claude(['mcp', 'add', '--scope', 'user', '--transport', 'http', 'context7', 'https://mcp.context7.com/mcp'])
+      done.push(add.status === 0 ? 'context7 MCP registered (user scope): https://mcp.context7.com/mcp' : `context7 MCP registration failed: ${failure(add)}`)
     }
   }
 
@@ -164,7 +194,7 @@ function apply(options) {
     const binary = findObscura()
     if (!binary) {
       done.push('obscura not found on this machine: skipped (WebSearch/WebFetch stay the fallback)')
-    } else if (obscuraRegistered()) {
+    } else if (mcpRegistered('obscura')) {
       done.push('obscura MCP already registered')
     } else {
       const add = claude(['mcp', 'add', '--scope', 'user', 'obscura', '--', binary, 'mcp'])
@@ -193,11 +223,16 @@ if (command === 'check') {
     console.error('--skip-rules needs --data <plugin data dir>')
     process.exit(1)
   }
-  const options = { rules: rest.includes('--rules'), skipRules: rest.includes('--skip-rules'), baseRef, obscura: rest.includes('--obscura'), dataDir }
+  const scope = value('--scope') || 'project'
+  if (!['project', 'user'].includes(scope)) {
+    console.error('--scope takes project or user')
+    process.exit(1)
+  }
+  const options = { rules: rest.includes('--rules'), skipRules: rest.includes('--skip-rules'), baseRef, scope, context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), dataDir }
   for (const line of apply(options)) {
     console.log(line)
   }
 } else {
-  console.error('usage: setup.mjs check [--data <dir>] | apply [--rules | --skip-rules] [--base-ref head|fresh] [--obscura] [--data <dir>]')
+  console.error('usage: setup.mjs check [--data <dir>] | apply [--rules | --skip-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--data <dir>]')
   process.exit(1)
 }
