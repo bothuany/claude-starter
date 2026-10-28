@@ -62,6 +62,18 @@ Optional:
 - **`worktree.baseRef: "head"`** also makes `claude --worktree` sessions start from your current HEAD instead of a clean default branch.
 - **Rule effects are probabilistic.** The rules make the behaviour likely, not guaranteed. If you need a guarantee, use a hook in that project.
 
+## Keep improving it: a monthly review
+
+The starter doesn't create skills or memories on its own. Tools that do (such as Hermes Agent's background skill writer) tend to pile up narrow, near-duplicate skills, and auto-written context has no evidence of helping coding agents. Claude Code already has the pieces for a deliberate review:
+
+1. **Run `/insights`.** It reads your recent sessions and writes an HTML report: where things went wrong, suggested CLAUDE.md lines, skills and hooks. It takes about a minute, and its cost scales with your history (about $1.50 for 130 sessions).
+2. **Check each suggestion before you use it.** The report doesn't know your existing skills or project CLAUDE.md files, and its advice can be wrong for your setup. For example, it may suggest `git worktree remove --force` on Windows, which follows junctions into your main checkout. Drop what you already have, and drop what you can't confirm.
+3. **Apply at most two.** Pick the ones that fix your most expensive repeated mistake. A CLAUDE.md line goes in the project that needs it. A skill goes through the `skill-creator` skill, with a with-and-without eval before you keep it.
+4. **Look at memory with `/memory`.** Claude Code's auto memory is on by default and loads each project's `MEMORY.md` index (up to 200 lines) at session start. Keep entries that the code can't tell Claude: your preferences, corrections you've made twice, decisions that aren't in the repo, and pointers to outside resources. Delete the rest. The starter doesn't add a memory server: none has evidence of helping coding tasks, and irrelevant memory measurably hurts.
+5. **Check skill cost with `/skill-doctor`** and remove skills you don't use.
+
+Transcripts are deleted after `cleanupPeriodDays` (30 by default). Set it higher in `~/.claude/settings.json` if you want reviews to reach further back.
+
 ## Pairs well with
 
 - [`feature-dev`](https://github.com/anthropics/claude-plugins-official) from Anthropic's official marketplace: a guided flow of explore, clarify, architect, build and review for larger features.
