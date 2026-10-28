@@ -10,6 +10,8 @@ A small user-level setup for [Claude Code](https://code.claude.com). It does a f
 
 ## Install
 
+Needs Node.js 18 or later on PATH: the session-start check and the setup, cleanup and review scripts run with `node`. Claude Code's native installer doesn't include Node; without it the session-start hook fails with a hook error at each start.
+
 ```bash
 claude plugin marketplace add bothuany/claude-starter
 claude plugin install starter@claude-starter
@@ -28,7 +30,7 @@ Then, in a session:
 - register obscura;
 - install i-have-adhd.
 
-`/starter:setup check` only reports the current state. When a plugin update changes the rules, a one-line notice at session start tells you to run it again. That notice is shown to you only and adds nothing to Claude's context.
+`/starter:setup check` only reports the current state. While the rules are not installed, or a plugin update changed them, a one-line notice at session start tells you to run it. If you skip the rules in setup, that notice stays quiet until you apply them. The notice is shown to you only and adds nothing to Claude's context. Setup never rewrites a CLAUDE.md whose starter markers are unbalanced; it tells you to remove the old block by hand, and the notice reports it until you do. Each file it changes is backed up first as `<file>.<time>.starter-backup`.
 
 ## What's inside
 
@@ -37,12 +39,12 @@ Then, in a session:
 | Working rules | `~/.claude/CLAUDE.md` block (about 500 tokens, via `/starter:setup`) | Ask before assuming, docs first, web research routing, when to delegate and when not to, verify before done. Read them in [`plugins/starter/rules.md`](plugins/starter/rules.md) |
 | `fan-out` | Skill (Claude may use it on its own) | Split an approved plan into independent parts, commit the shared contract, run `implementer` workers in parallel, then read each diff, merge one at a time, check, and review |
 | `implementer` | Subagent (Sonnet, `isolation: worktree`) | Builds one part inside the files it owns, commits, and reports in 10 lines |
-| `clean-worktrees` | Skill (you run it) | Lists worktrees and branches, then removes the clean, merged ones after you confirm |
+| `clean-worktrees` | Skill (you run it) | Lists worktrees and branches, then removes the clean, merged ones after you confirm. It refuses anything with uncommitted or untracked files, an unreadable git status, or commits that no branch holds |
 | `setup` | Skill (you run it) | Installs and updates the pieces above that a plugin can't ship |
 | `monthly-review` | Skill (you run it) plus a session-start reminder | Runs `/insights`, checks its suggestions against your setup, applies at most two after you choose, and prunes auto memory. The reminder appears once a day when the review is due |
 | context7 | MCP server (HTTP, no key needed) | Current library documentation. Add an API key yourself for higher rate limits ([context7](https://github.com/upstash/context7)) |
 
-**Context cost, measured.** The rules are about 500 tokens. The plugin's skill and agent descriptions add about 370 more (`claude plugin details starter`). context7's tool schemas come on top, and Claude Code loads them on demand. The SessionStart hook adds nothing to the context. If you already have a context7 server of your own, you'll now have two: remove one.
+**Context cost, measured.** The rules are about 500 tokens. `claude plugin details starter` estimates about 480 more for the skill and agent descriptions, but it counts all four skills. `setup`, `clean-worktrees` and `monthly-review` are user-only (`disable-model-invocation`), so their descriptions don't load; what Claude sees is `fan-out` and `implementer`, about 190 tokens. context7's tool schemas come on top, and Claude Code loads them on demand. The SessionStart hook adds nothing to the context. If you already have a context7 server of your own, you'll now have two: remove one.
 
 Optional:
 
@@ -67,16 +69,16 @@ Optional:
 
 The starter doesn't create skills or memories on its own. Tools that do (such as Hermes Agent's background skill writer) tend to pile up narrow, near-duplicate skills, and auto-written context has no evidence of helping coding agents. Instead it reminds you, and does the legwork when you say so:
 
-- **Reminder.** At session start, a one-line notice appears when your newest `/insights` report is more than 30 days old (or there is none), or when a project's memory index is over 150 lines. You see it at most once a day, and it adds nothing to Claude's context. `/starter:monthly-review off` stops it, and `on` brings it back.
+- **Reminder.** At session start, a one-line notice appears when your newest `/insights` report is 30 days old or older (or there is none: Claude Code deletes reports after `cleanupPeriodDays`), or when a project's memory index is over 150 lines or 20KB. You see it at most once a day, and it adds nothing to Claude's context. `/starter:monthly-review off` stops it, and `on` brings it back.
 - **`/starter:monthly-review`** runs the steps below. It uses a report from the last 7 days if there is one, and asks before every change.
 
 The steps, if you'd rather do them by hand:
 
-1. **Run `/insights`.** It reads your recent sessions and writes an HTML report: where things went wrong, suggested CLAUDE.md lines, skills and hooks. It takes about a minute, and its cost scales with your history (about $1.50 for 130 sessions).
+1. **Run `/insights`.** It reads your recent sessions and writes an HTML report: where things went wrong, suggested CLAUDE.md lines, skills and hooks. In our runs it took about a minute and cost about $1.50 for 130 sessions; its cost grows with the number of new sessions it reads (up to 200 per run).
 2. **Check each suggestion before you use it.** The report doesn't know your existing skills or project CLAUDE.md files, and its advice can be wrong for your setup. For example, it may suggest `git worktree remove --force` on Windows, which follows junctions into your main checkout. Drop what you already have, and drop what you can't confirm.
 3. **Apply at most two.** Pick the ones that fix your most expensive repeated mistake. A CLAUDE.md line goes in the project that needs it. A skill goes through the `skill-creator` skill, with a with-and-without eval before you keep it.
-4. **Look at memory with `/memory`.** Claude Code's auto memory is on by default and loads each project's `MEMORY.md` index (up to 200 lines) at session start. Keep entries that the code can't tell Claude: your preferences, corrections you've made twice, decisions that aren't in the repo, and pointers to outside resources. Delete the rest. The starter doesn't add a memory server: none has evidence of helping coding tasks, and irrelevant memory measurably hurts.
-5. **Check skill cost with `/skill-doctor`** and remove skills you don't use.
+4. **Look at memory with `/memory`.** Claude Code's auto memory is on by default and loads each project's `MEMORY.md` index (the first 200 lines or 25KB) at session start. Keep entries that the code can't tell Claude: your preferences, corrections you've made twice, decisions that aren't in the repo, and pointers to outside resources. Delete the rest. The starter doesn't add a memory server: none has evidence of helping coding tasks, and irrelevant memory measurably hurts.
+5. **Check skill cost with `/skill-doctor`** (Claude Code v2.1.252 or later) and remove skills you don't use.
 
 Transcripts are deleted after `cleanupPeriodDays` (30 by default). Set it higher in `~/.claude/settings.json` if you want reviews to reach further back.
 
@@ -97,7 +99,16 @@ Transcripts are deleted after `cleanupPeriodDays` (30 by default). Set it higher
 claude plugin uninstall starter@claude-starter
 ```
 
-Then delete the block between `claude-starter:begin` and `claude-starter:end` in `~/.claude/CLAUDE.md`.
+Then undo what `/starter:setup` wrote, if you no longer want it:
+
+- delete the block between `claude-starter:begin` and `claude-starter:end` in `~/.claude/CLAUDE.md`;
+- remove `worktree.baseRef` from `~/.claude/settings.json` (or set it back to `"fresh"`);
+- `claude mcp remove --scope user obscura`, if setup registered it;
+- delete the `*.starter-backup` files next to those two files once you don't need them.
+
+## Tests
+
+`node --test test/scripts.test.mjs` runs the scripts against throwaway repositories and config directories; it never touches your own `~/.claude`.
 
 ## License
 

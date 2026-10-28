@@ -13,6 +13,7 @@ import { configDir } from './rules-block.mjs'
 
 export const REVIEW_DAYS = 30
 export const MEMORY_LINES = 150
+export const MEMORY_BYTES = 20 * 1024
 const DAY = 24 * 60 * 60 * 1000
 
 // The newest /insights report under the config dir, or null.
@@ -28,7 +29,8 @@ export function newestReport() {
   return reports[0] ?? null
 }
 
-// Every project's auto-memory index with its line count, largest first.
+// Every project's auto-memory index with its size, largest first. Lines are counted as Claude Code counts them when
+// it loads the index (the first 200 lines or 25KB), blank lines included.
 export function memoryIndexes() {
   const projects = join(configDir, 'projects')
   if (!existsSync(projects)) {
@@ -38,8 +40,8 @@ export function memoryIndexes() {
   for (const project of readdirSync(projects)) {
     const file = join(projects, project, 'memory', 'MEMORY.md')
     if (existsSync(file)) {
-      const lines = readFileSync(file, 'utf8').split(/\r?\n/).filter(line => line.trim()).length
-      found.push({ project, file, lines })
+      const text = readFileSync(file, 'utf8')
+      found.push({ project, file, lines: text.replace(/\r?\n$/, '').split(/\r?\n/).length, bytes: Buffer.byteLength(text) })
     }
   }
   return found.sort((a, b) => b.lines - a.lines)
@@ -57,11 +59,14 @@ export function status(dataDir, now = Date.now()) {
     insightsReport: report?.path ?? null,
     insightsAgeDays: ageDays,
     reviewDue: ageDays === null || ageDays >= REVIEW_DAYS,
-    largeMemoryIndexes: memory.filter(m => m.lines > MEMORY_LINES),
+    largeMemoryIndexes: memory.filter(m => m.lines > MEMORY_LINES || m.bytes > MEMORY_BYTES),
     memoryIndexes: memory.slice(0, 10),
     remindersOff: remindersOff(dataDir),
   }
 }
+
+// The character for a numeric entity, or the entity itself when the number isn't a valid code point.
+const codePoint = (n, entity) => (Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : entity)
 
 // The report's readable text, without markup, scripts or styles.
 function reportText(file) {
@@ -71,30 +76,36 @@ function reportText(file) {
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<(br|\/p|\/div|\/li|\/h\d|\/tr)[^>]*>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&bull;/g, '-').replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&bull;/g, '-')
+    .replace(/&nbsp;/g, ' ').replace(/&mdash;/g, '—').replace(/&ndash;/g, '–').replace(/&hellip;/g, '…')
+    .replace(/&#x([0-9a-f]+);/gi, (entity, hex) => codePoint(parseInt(hex, 16), entity))
+    .replace(/&#(\d+);/g, (entity, dec) => codePoint(Number(dec), entity))
+    .replace(/&amp;/g, '&')
     .split(/\r?\n/).map(line => line.trim()).filter(Boolean).join('\n')
 }
 
 if (process.argv[1]?.endsWith('review.mjs')) {
   const [command, ...args] = process.argv.slice(2)
-  const dataDir = args.includes('--data') ? args[args.indexOf('--data') + 1] : ''
+  const dataAt = args.indexOf('--data')
+  const dataDir = dataAt === -1 ? '' : args[dataAt + 1] ?? ''
+  const positional = args.filter((arg, i) => !arg.startsWith('--') && (dataAt === -1 || i !== dataAt + 1))
   if (command === 'status') {
     console.log(JSON.stringify(status(dataDir), null, 2))
   } else if (command === 'report') {
-    const file = args.find(arg => !arg.startsWith('--')) || newestReport()?.path
-    if (!file || !existsSync(file)) {
+    const file = positional[0] || newestReport()?.path
+    if (!file || !existsSync(file) || !statSync(file).isFile()) {
       console.error('No /insights report found. Run /insights first.')
       process.exit(1)
     }
     console.log(reportText(file))
-  } else if (command === 'reminders' && ['on', 'off'].includes(args[0]) && dataDir) {
+  } else if (command === 'reminders' && ['on', 'off'].includes(positional[0]) && dataDir) {
     mkdirSync(dataDir, { recursive: true })
-    if (args[0] === 'off') {
+    if (positional[0] === 'off') {
       writeFileSync(join(dataDir, 'reminders-off'), '')
     } else {
       rmSync(join(dataDir, 'reminders-off'), { force: true })
     }
-    console.log(`review reminders ${args[0]}`)
+    console.log(`review reminders ${positional[0]}`)
   } else {
     console.error('usage: review.mjs status [--data <dir>] | report [<file>] | reminders on|off --data <dir>')
     process.exit(1)
