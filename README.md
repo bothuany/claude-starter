@@ -39,6 +39,7 @@ Then, in a session:
 | `implementer` | Subagent (Sonnet, `isolation: worktree`) | Builds one part inside the files it owns, commits, and reports in 10 lines |
 | `clean-worktrees` | Skill (you run it) | Lists worktrees and branches, then removes the clean, merged ones after you confirm |
 | `setup` | Skill (you run it) | Installs and updates the pieces above that a plugin can't ship |
+| `monthly-review` | Skill (you run it) plus a session-start reminder | Runs `/insights`, checks its suggestions against your setup, applies at most two after you choose, and prunes auto memory. The reminder appears once a day when the review is due |
 | context7 | MCP server (HTTP, no key needed) | Current library documentation. Add an API key yourself for higher rate limits ([context7](https://github.com/upstash/context7)) |
 
 **Context cost, measured.** The rules are about 500 tokens. The plugin's skill and agent descriptions add about 290 more (`claude plugin details starter`). context7's tool schemas come on top, and Claude Code loads them on demand. The SessionStart hook adds nothing to the context. If you already have a context7 server of your own, you'll now have two: remove one.
@@ -64,7 +65,12 @@ Optional:
 
 ## Keep improving it: a monthly review
 
-The starter doesn't create skills or memories on its own. Tools that do (such as Hermes Agent's background skill writer) tend to pile up narrow, near-duplicate skills, and auto-written context has no evidence of helping coding agents. Claude Code already has the pieces for a deliberate review:
+The starter doesn't create skills or memories on its own. Tools that do (such as Hermes Agent's background skill writer) tend to pile up narrow, near-duplicate skills, and auto-written context has no evidence of helping coding agents. Instead it reminds you, and does the legwork when you say so:
+
+- **Reminder.** At session start, a one-line notice appears when your newest `/insights` report is more than 30 days old (or there is none), or when a project's memory index is over 150 lines. You see it at most once a day, and it adds nothing to Claude's context. `/starter:monthly-review off` stops it, and `on` brings it back.
+- **`/starter:monthly-review`** runs the steps below. It uses a report from the last 7 days if there is one, and asks before every change.
+
+The steps, if you'd rather do them by hand:
 
 1. **Run `/insights`.** It reads your recent sessions and writes an HTML report: where things went wrong, suggested CLAUDE.md lines, skills and hooks. It takes about a minute, and its cost scales with your history (about $1.50 for 130 sessions).
 2. **Check each suggestion before you use it.** The report doesn't know your existing skills or project CLAUDE.md files, and its advice can be wrong for your setup. For example, it may suggest `git worktree remove --force` on Windows, which follows junctions into your main checkout. Drop what you already have, and drop what you can't confirm.
