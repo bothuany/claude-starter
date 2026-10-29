@@ -13,6 +13,11 @@
       "name": "i-have-adhd",
       "source": { "source": "github", "repo": "ayghri/i-have-adhd", "ref": "v0.4.1", "sha": "1ecea1993b7fce257ffbd686c070948b5e07eda6" },
       "description": "Optional, third party, not part of the starter (ayghri/i-have-adhd, MIT): action-first output - the next step first, numbered steps, no tangents."
+    },
+    {
+      "name": "ponytail",
+      "source": { "source": "github", "repo": "DietrichGebert/ponytail", "ref": "v5.3.3", "sha": "7801d061243d7b753bad0e0b3c057cd250b11755" },
+      "description": "Optional, third party, not part of the starter (DietrichGebert/ponytail, MIT): lazy-senior-dev mode - reuse what exists, stdlib first, the smallest code that works, plus /ponytail-review and a cost band."
     }
   ]
 }

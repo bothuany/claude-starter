@@ -109,11 +109,12 @@ function baseRefs() {
   return { user, project, local, effective: local ?? project ?? user ?? 'fresh (default)' }
 }
 
-// Enabled in the effective settings: the project's local settings override its shared ones, which override the user's.
-function adhdInstalled() {
+// Enabled in the effective settings, from any marketplace: the project's local settings override its shared ones,
+// which override the user's.
+function pluginEnabled(name) {
   const files = [settingsFile, join(process.cwd(), '.claude', 'settings.json'), join(process.cwd(), '.claude', 'settings.local.json')]
   const enabled = Object.assign({}, ...files.map(file => readSettings(file, file === settingsFile).enabledPlugins || {}))
-  return Object.keys(enabled).some(key => key.startsWith('i-have-adhd@') && enabled[key])
+  return Object.keys(enabled).some(key => key.startsWith(`${name}@`) && enabled[key])
 }
 
 function check(dataDir) {
@@ -128,7 +129,8 @@ function check(dataDir) {
     context7Mcp: mcpRegistered('context7'),
     obscuraBinary: findObscura() || null,
     obscuraMcp: mcpRegistered('obscura'),
-    iHaveAdhd: adhdInstalled(),
+    iHaveAdhd: pluginEnabled('i-have-adhd'),
+    ponytail: pluginEnabled('ponytail'),
     reviewGate: dataDir && gateOff(dataDir) ? 'off' : 'on',
   }
 }
