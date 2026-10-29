@@ -61,10 +61,10 @@ After the last merge, run the checks that cover everything that changed. Then re
 
 1. Call the `code-review` skill with the Skill tool, args `high <commit from step 2>..HEAD`, and wait for its findings. It runs in its own forked context and sees only the diff, so it reads the code without your assumptions. At high effort it favours recall and doesn't verify its findings.
 2. You designed the contract and merged this code, so you lean toward dismissing findings. Give each one of three outcomes, with evidence:
-   - **confirmed**: you read the lines and, where you can, showed it with a command or a short failing test. Fix it.
+   - **confirmed**: you reproduced it with a command or a throwaway test (not committed unless the user wants tests). Then fix it.
    - **dismissed**: only with evidence that it's wrong (the line you read, or a command you ran and its output).
-   - **unverified**: you can't confirm or refute it cheaply. Don't fix or dismiss it; report it to the user.
-   When in doubt, it's unverified, not dismissed.
+   - **unverified**: only when checking would take more than a few minutes, or it needs the user's decision (a gap or conflict in the spec). Don't fix or dismiss it; report it to the user.
+   "The plan's examples pass" and "it was like that before" are not evidence. When in doubt, it's unverified, not dismissed.
 3. Check the result against the plan, which a diff review can't see. Do it mechanically, not from memory:
    - make a table of every plan item with the `file:line` that implements it and the name of the test that covers it. An item without both is missing;
    - the parts use the shared contract the same way (names, types, error behaviour);

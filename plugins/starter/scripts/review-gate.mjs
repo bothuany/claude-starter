@@ -209,8 +209,11 @@ function stop(input) {
   console.log(JSON.stringify({
     decision: 'block',
     reason: `claude-starter review gate: since the last review this session changed ${size.files} non-test file(s), ` +
-      `${size.lines} line(s) (${list}). Call the code-review skill with the Skill tool (args \`medium\`), then fix or ` +
-      'report what it finds. If the change is only docs, a rename or formatting, if these changes were not made in ' +
+      `${size.lines} line(s) (${list}). Call the code-review skill with the Skill tool (args \`medium\`). For each ` +
+      'finding: reproduce it with a command or a throwaway test, then fix it; dismiss it only with evidence (the ' +
+      'line you read, or a command you ran and its output); report it as unverified only if checking would take ' +
+      'more than a few minutes or needs the user\'s decision. "The task\'s examples pass" and "it was like that ' +
+      'before" are not evidence. If the change is only docs, a rename or formatting, if these changes were not made in ' +
       'this session (a pull, a merge, the user\'s own edits), or if a fan-out in progress will review them at its ' +
       'step 5, say so in one line and stop.',
   }))
