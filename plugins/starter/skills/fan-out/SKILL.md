@@ -1,6 +1,6 @@
 ---
 name: fan-out
-description: Run an approved plan's independent parts as parallel implementer subagents (Sonnet, each in its own git worktree), merge them in the main session, then have one reviewer subagent review the merged result. Use when an approved plan has 3 or more parts that share no files and don't need each other's results, and the parts are large (see the scope check in step 1); or when the user asks to split a plan across subagents. For a plan of small parts, implement it in the main session instead.
+description: Run an approved plan's independent parts as parallel implementer subagents (Sonnet, each in its own git worktree), merge them in the main session, then review the merged result once with `code-review` at high effort. Use when an approved plan has 3 or more parts that share no files and don't need each other's results, and the parts are large (see the scope check in step 1); or when the user asks to split a plan across subagents. For a plan of small parts, implement it in the main session instead.
 argument-hint: "[plan file or the parts to run]"
 ---
 
@@ -57,9 +57,17 @@ As each worker reports, note its worktree path and branch from the agent's resul
 
 ## 5. Verify and clean up
 
-After the last merge, run the checks that cover everything that changed. Then spawn **one** `starter:reviewer` subagent for the whole merged result (not one per part), and wait for its report. A reviewer that wrote none of the code reads it without your assumptions. Its brief gives the commit from step 2, the plan (file path or text), the parts with the files each owned, the check commands and their results. It runs the `code-review` skill at high effort on `<commit>..HEAD`, checks the result against the plan, and reports only findings it confirmed.
+After the last merge, run the checks that cover everything that changed. Then review the merged result once (not once per part):
 
-Fix what it finds in the main session and re-run the checks. If a finding looks wrong to you, check the code before you dismiss it, and say why. Don't spawn a second review for the fixes. Report one line per part (merged or not, branch, checks), then the review's findings and what you fixed.
+1. Call the `code-review` skill with the Skill tool, args `high <commit from step 2>..HEAD`, and wait for its findings. It runs in its own forked context and sees only the diff, so it reads the code without your assumptions. At high effort it favours recall and doesn't verify its findings.
+2. Verify each finding against the code before you act on it: read the lines, and where you can, show it with a command or a short failing test. Fix the confirmed ones. Dismiss the rest, and give one line on why for each.
+3. Check the result against the plan, which a diff review can't see:
+   - every item of the plan is implemented and has a test;
+   - the parts use the shared contract the same way (names, types, error behaviour);
+   - the parts work together: if the plan says how they combine, try that path.
+4. Re-run the checks after your fixes. Don't run a second review for them.
+
+Report one line per part (merged or not, branch, checks), then the confirmed findings and what you fixed, the dismissed ones with their reason, and any plan item you found missing.
 
 Then remove the worktrees and branches of the workers you merged, and only those, with the starter's safe script (never a plain `git worktree remove --force`: a worktree may hold links into the main checkout). `--into` is the branch you merged into, from step 2: the merges aren't pushed, so the script must not compare against `origin/...`.
 
