@@ -9,7 +9,7 @@ The scripts live in `${CLAUDE_PLUGIN_ROOT}/scripts`. Run them with `node`. Nothi
 
 ## 1. Check
 
-Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" check --data "${CLAUDE_PLUGIN_DATA}"` and summarize it in one short table: Node version, rules (missing / outdated / current / broken, and whether the user skipped them before), `worktree.baseRef` (user, project, project local, and the effective value for the current folder), context7 registered, obscura (binary found, MCP registered), i-have-adhd installed.
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" check --data "${CLAUDE_PLUGIN_DATA}"` and summarize it in one short table: Node version, rules (missing / outdated / current / broken, and whether the user skipped them before), `worktree.baseRef` (user, project, project local, and the effective value for the current folder), context7 registered, obscura (binary found, MCP registered), i-have-adhd installed, review gate on or off.
 
 If `$ARGUMENTS` is `check`, stop here.
 
@@ -19,6 +19,7 @@ If `$ARGUMENTS` is `check`, stop here.
 - **Worktree base for fan-out.** Subagents with `isolation: worktree` (such as `starter:implementer`) branch from the remote default branch unless `worktree.baseRef` is `"head"`, so with the default they don't see the fan-out contract commit. Offer it **for this project** (the `project` path from step 1): it goes into that project's `.claude/settings.local.json`, which is personal and usually gitignored. Setting it for every project (user settings) is the alternative; its cost is that `claude --worktree` sessions everywhere start from your current HEAD instead of a clean `main`. Skip this when the current folder isn't the project the user means to fan out in.
 - **context7** (optional). An MCP server with current library documentation ([upstash/context7](https://github.com/upstash/context7)), keyless, added at user scope. It sends library names and topics to context7.com: on a work machine, check that this is allowed. Offer it only if no `context7` server is registered yet.
 - **obscura** (optional). A local headless browser with an MCP server ([h4ckf0r0day/obscura](https://github.com/h4ckf0r0day/obscura)). If the binary was found, offer to register it at user scope. If not, say how to get it: download the normal build for the OS from its releases page (not a `-stealth` build: that one is made to evade bot detection) and put it on PATH, then run `/starter:setup` again. Without it, WebSearch and WebFetch are used.
+- **Review gate** (on by default). A `Stop` hook: when this session changed 2+ non-test files (15+ lines) or 50+ non-test lines since the last review and `code-review` hasn't run, it asks Claude once to run it before stopping. It adds a turn and some cost on larger changes; Sonnet skipped the review rule without it. Offer to turn it off only if the user asks or prefers fewer stops; `CLAUDE_STARTER_REVIEW_GATE=off` in settings `env` also works.
 - **i-have-adhd** (optional, third party: [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd), MIT, pinned to v0.4.1). Output shaping: answers lead with the next action, numbered steps, no tangents. It adds its own skill and a SessionStart hook that puts its instructions into every session. Offer it only if it isn't installed.
 
 ## 3. Ask
@@ -30,13 +31,14 @@ Use AskUserQuestion, one question per item that would change something (skip ite
 3. context7: register / skip.
 4. obscura: register / skip (only when the binary was found).
 5. i-have-adhd: install / skip.
+6. Review gate: keep on / turn off (only if the user raised it, or it is currently off: then turn on / keep off).
 
 ## 4. Apply
 
 Build one command with a flag for each answer, and run it when there is at least one flag (`--skip-rules` when the user skipped the rules; `--scope user` only for "every project"):
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" apply [--rules | --skip-rules] [--base-ref head [--scope user]] [--context7] [--obscura] --data "${CLAUDE_PLUGIN_DATA}"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" apply [--rules | --skip-rules] [--base-ref head [--scope user]] [--context7] [--obscura] [--review-gate on|off] --data "${CLAUDE_PLUGIN_DATA}"
 ```
 
 For i-have-adhd, run `claude plugin install i-have-adhd@claude-starter`.

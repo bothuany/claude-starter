@@ -4,22 +4,29 @@
 //   SessionStart:  node review-gate.mjs start    snapshot the working tree as the session's review base
 //   Stop:          node review-gate.mjs stop     if the change since the base crosses the threshold and code-review
 //                                                wasn't called since, ask Claude once to run it before stopping
-//   node review-gate.mjs on|off --data <dir>     turn the gate on or off for this user
+//   node review-gate.mjs on|off --data <dir>     turn the gate on or off (setup passes the plugin data dir)
 //
-// Threshold, as in the rules: 2 or more non-test files, or more than 50 non-test lines (docs not counted). A review
-// moves the base to the reviewed state, so the fixes that follow don't trigger a second review unless they grow past
-// the threshold themselves. The gate blocks at most once in a row (stop_hook_active), and any failure lets Claude stop.
+// Off also with CLAUDE_STARTER_REVIEW_GATE=off in the environment (settings.json "env").
+//
+// Threshold, as in the rules: 2 or more non-test files with at least 15 changed lines in total, or more than 50
+// non-test lines (docs not counted). Each change set is gated once: after a review, or after Claude answered the gate
+// without one, the base moves to the current state. Changes that came from outside the session (pull, merge,
+// checkout, reset, rebase in the reflog) also move the base. Any failure lets Claude stop.
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 export const MIN_FILES = 2
+export const MIN_FILES_LINES = 15
 export const MIN_LINES = 50
+const STATE_DAYS = 30
 const TEST_PATH = /(^|\/)(tests?|__tests__|spec|testdata|fixtures)\/|\.(test|spec)\.[^/]+$|_test\.go$|(^|\/)test_[^/]*\.py$/i
 const DOC_PATH = /(^|\/)docs?\/|\.(md|mdx|markdown|rst|txt|adoc)$/i
 const IGNORED_PATH = /(^|\/)\.claude\//
 const REVIEW_CALL = /code-review/
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell'])
+const FOREIGN_REFLOG = /^(pull|merge|checkout|reset|rebase|cherry-pick|am)\b/
 
 function git(cwd, args, env) {
   return execFileSync('git', ['-c', 'core.longpaths=true', ...args], {
@@ -28,19 +35,17 @@ function git(cwd, args, env) {
 }
 
 // A tree object for the working tree as it is now: tracked changes, staged or not, plus untracked files that
-// .gitignore doesn't exclude. Built in a scratch index, so the user's index is untouched.
-export function snapshot(cwd) {
-  const gitDir = git(cwd, ['rev-parse', '--absolute-git-dir'])
-  const scratch = join(tmpdir(), `starter-gate-${process.pid}-${Date.now()}.index`)
-  try {
+// .gitignore doesn't exclude. Built in the session's own index file (seeded from the real one), so the user's index
+// is untouched and later snapshots reuse its stat cache.
+export function snapshot(cwd, indexFile) {
+  if (!existsSync(indexFile)) {
+    const gitDir = git(cwd, ['rev-parse', '--absolute-git-dir'])
     if (existsSync(join(gitDir, 'index'))) {
-      copyFileSync(join(gitDir, 'index'), scratch)
+      copyFileSync(join(gitDir, 'index'), indexFile)
     }
-    git(cwd, ['add', '-A', '--', ':/'], { GIT_INDEX_FILE: scratch })
-    return git(cwd, ['write-tree'], { GIT_INDEX_FILE: scratch })
-  } finally {
-    rmSync(scratch, { force: true })
   }
+  git(cwd, ['add', '-A', '--', ':/'], { GIT_INDEX_FILE: indexFile })
+  return git(cwd, ['write-tree'], { GIT_INDEX_FILE: indexFile })
 }
 
 // Non-test, non-doc files changed between two trees, with their changed line counts.
@@ -57,27 +62,34 @@ export function changedCode(cwd, fromTree, toTree) {
 
 export function crosses(files) {
   const lines = files.reduce((sum, f) => sum + f.lines, 0)
-  return { files: files.length, lines, over: files.length >= MIN_FILES || lines > MIN_LINES }
+  return { files: files.length, lines, over: (files.length >= MIN_FILES && lines >= MIN_FILES_LINES) || lines > MIN_LINES }
 }
 
-// Whether the transcript, from line `from` on, holds a code-review call: the Skill tool from Claude, or the user
-// typing /code-review. Returns the transcript's line count too, so the next check starts after it.
-export function reviewSince(transcriptPath, from) {
+// What the transcript holds from line `from` on: a code-review call (the Skill tool from Claude, or the user typing
+// /code-review), and any tool call that can change files. Complete lines only: a line still being written is read
+// on the next check.
+export function scanTranscript(transcriptPath, from) {
   if (!transcriptPath || !existsSync(transcriptPath)) {
-    return { reviewed: false, lines: from }
+    return { reviewed: false, edited: true, lines: from }
   }
-  // Complete lines only: a line still being written is read on the next check.
   const lines = readFileSync(transcriptPath, 'utf8').split('\n').slice(0, -1)
   let reviewed = false
+  let edited = false
   for (const line of lines.slice(from)) {
-    if (!line.includes('code-review')) {
+    if (!line.includes('tool_use') && !line.includes('code-review')) {
       continue
     }
     try {
       const entry = JSON.parse(line)
       const content = entry.message?.content
       if (entry.type === 'assistant' && Array.isArray(content)) {
-        reviewed ||= content.some(b => b?.type === 'tool_use' && b.name === 'Skill' && REVIEW_CALL.test(String(b.input?.skill ?? '')))
+        for (const block of content) {
+          if (block?.type !== 'tool_use') {
+            continue
+          }
+          reviewed ||= block.name === 'Skill' && REVIEW_CALL.test(String(block.input?.skill ?? ''))
+          edited ||= EDIT_TOOLS.has(block.name)
+        }
       } else if (entry.type === 'user') {
         reviewed ||= /<command-name>\/code-review<\/command-name>/.test(typeof content === 'string' ? content : JSON.stringify(content))
       }
@@ -85,19 +97,52 @@ export function reviewSince(transcriptPath, from) {
       // Not JSON: skip it.
     }
   }
-  return { reviewed, lines: lines.length }
+  return { reviewed, edited, lines: lines.length }
+}
+
+// Whether HEAD moved since `head` through something other than this session's own commits: a pull, merge,
+// checkout, reset or rebase in HEAD's reflog.
+export function foreignMove(cwd, head) {
+  if (!head) {
+    return false
+  }
+  const current = git(cwd, ['rev-parse', 'HEAD'])
+  if (current === head) {
+    return false
+  }
+  const entries = git(cwd, ['reflog', '-n', '100', '--format=%H %gs', 'HEAD']).split('\n')
+  for (const entry of entries) {
+    const [sha, ...subject] = entry.split(' ')
+    if (FOREIGN_REFLOG.test(subject.join(' '))) {
+      return true
+    }
+    if (sha === head) {
+      return false
+    }
+  }
+  return true
+}
+
+function headOf(cwd) {
+  try {
+    return git(cwd, ['rev-parse', 'HEAD'])
+  } catch {
+    return null
+  }
 }
 
 function dataDir() {
   return process.env.CLAUDE_PLUGIN_DATA || join(tmpdir(), 'claude-starter')
 }
 
-function statePath(sessionId) {
-  return join(dataDir(), 'review-gate', `${String(sessionId).replace(/[^\w-]/g, '_')}.json`)
+function sessionFiles(sessionId) {
+  const dir = join(dataDir(), 'review-gate')
+  const id = String(sessionId).replace(/[^\w-]/g, '_')
+  return { dir, state: join(dir, `${id}.json`), index: join(dir, `${id}.index`) }
 }
 
 export function gateOff(dir = dataDir()) {
-  return existsSync(join(dir, 'review-gate-off'))
+  return /^(off|0|false|no)$/i.test(process.env.CLAUDE_STARTER_REVIEW_GATE ?? '') || existsSync(join(dir, 'review-gate-off'))
 }
 
 function readInput() {
@@ -108,41 +153,66 @@ function readInput() {
   }
 }
 
-function save(sessionId, state) {
-  const file = statePath(sessionId)
-  mkdirSync(join(file, '..'), { recursive: true })
+function save(file, state) {
   writeFileSync(file, JSON.stringify(state))
+}
+
+// State and index files of sessions not seen for 30 days.
+function prune(dir) {
+  const cutoff = Date.now() - STATE_DAYS * 24 * 60 * 60 * 1000
+  for (const name of readdirSync(dir)) {
+    const path = join(dir, name)
+    if (statSync(path).mtimeMs < cutoff) {
+      rmSync(path, { force: true })
+    }
+  }
 }
 
 function start(input) {
   const cwd = input.cwd || process.cwd()
-  save(input.session_id, { base: snapshot(cwd), transcriptLines: 0 })
+  const files = sessionFiles(input.session_id)
+  mkdirSync(files.dir, { recursive: true })
+  prune(files.dir)
+  rmSync(files.index, { force: true })
+  save(files.state, { base: snapshot(cwd, files.index), head: headOf(cwd), transcriptLines: 0 })
 }
 
 function stop(input) {
   const cwd = input.cwd || process.cwd()
-  const file = statePath(input.session_id)
-  const state = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : { base: git(cwd, ['rev-parse', 'HEAD^{tree}']), transcriptLines: 0 }
-  const now = snapshot(cwd)
-  const review = reviewSince(input.transcript_path, state.transcriptLines)
-  if (review.reviewed) {
-    // Reviewed since the last check: what is there now counts as reviewed.
-    save(input.session_id, { base: now, transcriptLines: review.lines })
+  const files = sessionFiles(input.session_id)
+  mkdirSync(files.dir, { recursive: true })
+  const state = existsSync(files.state)
+    ? JSON.parse(readFileSync(files.state, 'utf8'))
+    : { base: git(cwd, ['rev-parse', 'HEAD^{tree}']), head: headOf(cwd), transcriptLines: 0 }
+  const scan = scanTranscript(input.transcript_path, state.transcriptLines)
+  const foreign = foreignMove(cwd, state.head)
+  if (!scan.reviewed && !scan.edited && !foreign) {
+    // Nothing since the last check could have changed files: skip the snapshot.
+    save(files.state, { ...state, transcriptLines: scan.lines })
     return
   }
-  const files = changedCode(cwd, state.base, now)
-  const size = crosses(files)
-  if (!size.over || input.stop_hook_active) {
-    save(input.session_id, { ...state, transcriptLines: review.lines })
+  const now = snapshot(cwd, files.index)
+  const next = { base: now, head: headOf(cwd), transcriptLines: scan.lines }
+  // Reviewed, answered the gate already, or the change came from outside the session: this state is the new base.
+  if (scan.reviewed || input.stop_hook_active || foreign) {
+    save(files.state, next)
     return
   }
-  save(input.session_id, { ...state, transcriptLines: review.lines })
-  const list = files.slice(0, 8).map(f => f.path).join(', ') + (files.length > 8 ? ', ...' : '')
+  const changed = changedCode(cwd, state.base, now)
+  const size = crosses(changed)
+  if (!size.over) {
+    save(files.state, { ...state, transcriptLines: scan.lines })
+    return
+  }
+  save(files.state, { ...state, transcriptLines: scan.lines })
+  const list = changed.slice(0, 8).map(f => f.path).join(', ') + (changed.length > 8 ? ', ...' : '')
   console.log(JSON.stringify({
     decision: 'block',
     reason: `claude-starter review gate: since the last review this session changed ${size.files} non-test file(s), ` +
       `${size.lines} line(s) (${list}). Call the code-review skill with the Skill tool (args \`medium\`), then fix or ` +
-      'report what it finds. If the change is only docs, a rename or formatting, say so in one line and stop.',
+      'report what it finds. If the change is only docs, a rename or formatting, if these changes were not made in ' +
+      'this session (a pull, a merge, the user\'s own edits), or if a fan-out in progress will review them at its ' +
+      'step 5, say so in one line and stop.',
   }))
 }
 

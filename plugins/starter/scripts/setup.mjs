@@ -4,7 +4,7 @@
 //
 //   node setup.mjs check [--data <plugin data dir>]   report what is installed, as JSON
 //   node setup.mjs apply [--rules | --skip-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura]
-//                        [--data <plugin data dir>]
+//                        [--review-gate on|off] [--data <plugin data dir>]
 //
 // Everything it writes lives in the Claude config dir (CLAUDE_CONFIG_DIR or ~/.claude), plus a "rules skipped" flag
 // in the plugin's data dir, user-scope MCP servers (context7, obscura) through `claude mcp add`, and, for
@@ -16,6 +16,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { blockState, claudeMd, configDir, findBlock, rulesBlock, rulesSkipped } from './rules-block.mjs'
+import { gateOff } from './review-gate.mjs'
 
 const settingsFile = join(configDir, 'settings.json')
 const isWin = process.platform === 'win32'
@@ -128,6 +129,7 @@ function check(dataDir) {
     obscuraBinary: findObscura() || null,
     obscuraMcp: mcpRegistered('obscura'),
     iHaveAdhd: adhdInstalled(),
+    reviewGate: dataDir && gateOff(dataDir) ? 'off' : 'on',
   }
 }
 
@@ -181,6 +183,17 @@ function apply(options) {
     }
   }
 
+  if (options.reviewGate) {
+    mkdirSync(options.dataDir, { recursive: true })
+    const flag = join(options.dataDir, 'review-gate-off')
+    if (options.reviewGate === 'off') {
+      writeFileSync(flag, '')
+    } else {
+      rmSync(flag, { force: true })
+    }
+    done.push(`review gate ${options.reviewGate}`)
+  }
+
   if (options.context7) {
     if (mcpRegistered('context7')) {
       done.push('context7 MCP already registered')
@@ -228,11 +241,20 @@ if (command === 'check') {
     console.error('--scope takes project or user')
     process.exit(1)
   }
-  const options = { rules: rest.includes('--rules'), skipRules: rest.includes('--skip-rules'), baseRef, scope, context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), dataDir }
+  const reviewGate = value('--review-gate')
+  if (rest.includes('--review-gate') && !['on', 'off'].includes(reviewGate)) {
+    console.error('--review-gate takes on or off')
+    process.exit(1)
+  }
+  if (reviewGate && !dataDir) {
+    console.error('--review-gate needs --data <plugin data dir>')
+    process.exit(1)
+  }
+  const options = { rules: rest.includes('--rules'), skipRules: rest.includes('--skip-rules'), baseRef, scope, context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), reviewGate, dataDir }
   for (const line of apply(options)) {
     console.log(line)
   }
 } else {
-  console.error('usage: setup.mjs check [--data <dir>] | apply [--rules | --skip-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--data <dir>]')
+  console.error('usage: setup.mjs check [--data <dir>] | apply [--rules | --skip-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
   process.exit(1)
 }
