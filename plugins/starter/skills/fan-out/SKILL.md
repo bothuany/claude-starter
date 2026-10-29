@@ -16,13 +16,13 @@ Shared files are what usually break this: type or interface definitions, a route
 
 A part is **large** when its non-test code is expected to be more than about 200 lines, or it changes 3 or more non-test files, or it needs reading code that no other part reads. Tests don't count toward either number.
 
-Write this line first, filled in:
+Write this line first, filled in, in your reply (not only in your thinking):
 
 `Scope: <n> qualifying parts; estimated non-test lines per part: <a, b, c, ...>; large parts: <k> -> <fan-out | main session>`
 
 - Fan out only when n is 3 or more **and** k is 2 or more.
 - Otherwise implement the plan in the main session and stop following this skill.
-- If the user explicitly asked for fan-out, write the line anyway, then fan out.
+- If the user started this skill themselves (their message contains the `/starter:fan-out` command) or asked for fan-out in words, write the line anyway, then fan out even if k is below 2. The check only guards the cases where you chose fan-out on your own.
 
 The 200-line mark is a rough guide, not a measured threshold.
 
