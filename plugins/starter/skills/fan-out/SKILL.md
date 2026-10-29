@@ -1,83 +1,56 @@
 ---
 name: fan-out
-description: Run an approved plan's independent parts as parallel implementer subagents (Sonnet, each in its own git worktree), merge them in the main session, then review the merged result once with `code-review` at high effort. Use when an approved plan has 3 or more parts that share no files and don't need each other's results, and the parts are large (see the scope check in step 1); or when the user asks to split a plan across subagents. For a plan of small parts, implement it in the main session instead.
-argument-hint: "[plan file or the parts to run]"
+description: Carry out an approved multi-part plan through the plugin's fan-out-run workflow, outside the main session. A Sonnet planner splits it; small plans are built by one Sonnet session, large ones by parallel Sonnet workers in git worktrees; then one integrator merges, one Opus review and one Sonnet verifier check it. Use when a plan with 3 or more independent parts has been approved, or when the user asks to fan a plan out.
+argument-hint: "[plan file or the plan to carry out]"
 ---
 
-You are the orchestrator. You keep the design, the shared contract, the merge and the verification; `starter:implementer` subagents only build their part. Read their diffs, not just their reports.
+You hand an approved plan to the `fan-out-run` workflow and report what it did. The workflow does the splitting, building, merging, review and cleanup in its own agents, so your context and your model's cost stay out of the coordination. Its models are fixed by design: Sonnet builds, Opus reviews.
 
-## 1. Split
+Why it is built this way: in our measurements one Sonnet session solved a 4-part plan at about 40% of one Opus session's cost, and earlier fan-out designs cost more than one session because the main session coordinated every merge. Large plans still need measuring.
 
-Take the plan from `$ARGUMENTS`, the plan file it names, or the plan approved in this conversation. List each part with the files it will create or change. A part qualifies only when no other part touches its files and it needs no other part's result, only the shared contract.
+## 1. Before you start
 
-Shared files are what usually break this: type or interface definitions, a route or command registry, a package manifest, a central config, a schema. A part that needs one of them either gets its piece of the contract in step 2 or stays in the main session.
+- The plan must be approved: by the user in this conversation, or stated as approved in the plan or the request. Otherwise show the plan and ask for the go-ahead with AskUserQuestion. Settle every open design question now, since the workflow's agents can't ask the user.
+- Workers branch from the local HEAD only when the effective `worktree.baseRef` is `"head"`, or when the repository has no remote. The effective value is the first one set in this order: the project's `.claude/settings.local.json`, the project's `.claude/settings.json`, then the user's `~/.claude/settings.json`. Otherwise the workers would start from the remote default branch and miss the contract commit: stop and say so, and offer to set it for this project only with `/starter:setup`.
+- Decide how a fresh worktree gets its dependencies: the project's `.worktreeinclude` or `worktree.symlinkDirectories`, a cheap install command, or checks that need none.
+- Commit or stash unrelated changes first; the workflow commits on the current branch.
 
-**Scope check, before the split table and any commit.** Fan-out costs about twice the tokens of one session doing the same work. It pays only when each part needs much more reading and editing than the main session spends on merging and verifying it. In a pilot, a plan of 4 parts of about 100 to 150 lines each gained nothing: same result, 2x the cost, about the same time, and no smaller main context.
+## 2. Run the workflow
 
-A part is **large** when its non-test code is expected to be more than about 200 lines, or it changes 3 or more non-test files, or it needs reading code that no other part reads. Tests don't count toward either number.
-
-Write this line first, filled in, in your reply (not only in your thinking):
-
-`Scope: <n> qualifying parts; estimated non-test lines per part: <a, b, c, ...>; large parts: <k> -> <fan-out | main session>`
-
-- Fan out only when n is 3 or more **and** k is 2 or more.
-- Otherwise implement the plan in the main session and stop following this skill.
-- If the user started this skill themselves (their message contains the `/starter:fan-out` command) or asked for fan-out in words, write the line anyway, then fan out even if k is below 2. The check only guards the cases where you chose fan-out on your own.
-
-The 200-line mark is a rough guide, not a measured threshold.
-
-More than 5 parts: spawn 5 in one message and start the next as one finishes.
-
-Show the split as a short table (part, files owned, contract it uses) and ask for the go-ahead with AskUserQuestion. Settle every open design question now: workers can't ask the user.
-
-## 2. Contract and preconditions
-
-- Note the current branch and its commit (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`) before you change anything: the review in step 5 covers everything since that commit, and cleanup checks merges into that branch.
-- Write the shared pieces yourself in the main session (types, interfaces, ids, manifest entries; a stub implementation is fine), run the project's checks, and commit on the current branch.
-- Workers branch from the local HEAD when the effective `worktree.baseRef` is `"head"`, or when the repository has no remote. The effective value is the first one set in this order: the project's `.claude/settings.local.json`, the project's `.claude/settings.json`, then the user's `~/.claude/settings.json`. Otherwise workers start from the remote default branch and won't see the contract: stop and say so, and offer to set it for this project only (`/starter:setup` does that in the project's `.claude/settings.local.json`, so other projects keep starting `claude --worktree` sessions from a clean default branch).
-- A worktree is a fresh checkout without installed dependencies. Decide how workers run checks before spawning: the project's `.worktreeinclude` or `worktree.symlinkDirectories` setting, an install command that is cheap enough to run per worker, or checks that need no install. Put the answer in every brief.
-
-## 3. Spawn
-
-Spawn the parts (up to 5) in one message as `starter:implementer` subagents in the background. Each brief is self-contained, since the worker sees nothing of this conversation:
+Start it with the Workflow tool, `name: "starter:fan-out-run"`, and `args` as a JSON object (not a string):
 
 ```
-Part: <one-line goal>
-Files you own: <paths; create or change only these>
-Contract (already committed): <what the part uses, with file paths>
-Behaviour: <what it must do, edge cases>
-Checks: <exact commands, and how dependencies are available>
-Done when: <tests to add or pass>
-Do not touch: <the other parts' files and the contract files>
+{
+  "plan": "<plan file path, or the plan text>",
+  "checks": "<exact check commands, e.g. npm test>",
+  "deps": "<how a fresh worktree gets its dependencies, or 'none needed'>",
+  "pluginRoot": "${CLAUDE_PLUGIN_ROOT}",
+  "forceFanOut": <true if the user typed /starter:fan-out or asked for fan-out in words, else false>
+}
 ```
 
-## 4. Merge
+The workflow:
+1. A Sonnet planner splits the plan and writes the scope line. It chooses fan-out only for 3 or more independent parts with at least 2 large ones (more than about 200 non-test lines, 3 or more files, or their own reading), or for 2 or more parts when `forceFanOut` is true. Otherwise it chooses one session. For fan-out it commits the shared contract.
+2. Building happens either in one Sonnet session, or with one Sonnet worker per part in its own worktree, at an effort that matches the part's tier.
+3. For fan-out, one Sonnet integrator merges the branches one at a time, checking that each stayed in its files, and runs the checks.
+4. `code-review` runs at high effort on `base..HEAD` in a fresh context (Opus).
+5. A Sonnet verifier who wrote none of the code goes through each finding:
+   - fixes it only after reproducing it;
+   - dismisses it only with evidence;
+   - reports the rest as unverified;
+   - builds the plan table (item, file:line, test).
+6. The safe script removes the merged worktrees and branches.
 
-As each worker reports, note its worktree path and branch from the agent's result (you need both for cleanup), read its branch's diff against the base (`git diff HEAD...<branch>`), check it stayed in its files and kept the contract, then `git merge --no-ff <branch>`. Merge one at a time and run the project's fast checks after each, so a break points at one part. A worker that reports a missing contract piece or a question: fix the contract, commit, and spawn a fresh worker for that part, or answer it with SendMessage.
+If the Workflow tool isn't available in this session, say so and implement the plan in the main session instead.
 
-## 5. Verify and clean up
+## 3. Report
 
-After the last merge, run the checks that cover everything that changed. Then review the merged result once (not once per part):
+From the workflow's result, report:
+- the scope line and the mode;
+- one line per part: built, merged, or why not;
+- the final checks, verbatim if they fail;
+- the review findings by outcome: fixed with its reproduction, dismissed with its evidence, and unverified for the user to decide;
+- plan items without code or a test;
+- worktrees left in place.
 
-1. Call the `code-review` skill with the Skill tool, args `high <commit from step 2>..HEAD`, and wait for its findings. It runs in its own forked context and sees only the diff, so it reads the code without your assumptions. At high effort it favours recall and doesn't verify its findings.
-2. You designed the contract and merged this code, so you lean toward dismissing findings. Give each one of three outcomes, with evidence:
-   - **confirmed**: you reproduced it with a command or a throwaway test (not committed unless the user wants tests). Then fix it.
-   - **dismissed**: only with evidence that it's wrong (the line you read, or a command you ran and its output).
-   - **unverified**: only when checking would take more than a few minutes, or it needs the user's decision (a gap or conflict in the spec). Don't fix or dismiss it; report it to the user.
-   "The plan's examples pass" and "it was like that before" are not evidence. When in doubt, it's unverified, not dismissed.
-3. Check the result against the plan, which a diff review can't see. Do it mechanically, not from memory:
-   - make a table of every plan item with the `file:line` that implements it and the name of the test that covers it. An item without both is missing;
-   - the parts use the shared contract the same way (names, types, error behaviour);
-   - the parts work together: if the plan says how they combine, try that path.
-4. Re-run the checks after your fixes. Don't run a second review for them.
-
-Report one line per part (merged or not, branch, checks), then the plan table, the confirmed findings and what you fixed, the dismissed ones with their evidence, and the unverified ones for the user to decide.
-
-Then remove the worktrees and branches of the workers you merged, and only those, with the starter's safe script (never a plain `git worktree remove --force`: a worktree may hold links into the main checkout). `--into` is the branch you merged into, from step 2: the merges aren't pushed, so the script must not compare against `origin/...`.
-
-```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/worktrees.mjs" remove <worker worktree paths>
-node "${CLAUDE_PLUGIN_ROOT}/scripts/worktrees.mjs" delete-branches --into <branch from step 2> <worker branches>
-```
-
-If `remove` skips a worker because it holds gitignored files, look at the list it prints. Build output, caches and copies made by `.worktreeinclude` are safe to lose in a merged worker: run `remove --include-ignored` for that worker and say so in the report. Anything else, ask first. Leave unmerged workers' worktrees in place and name them in the report. If `.claude/worktrees/` shows up as untracked in `git status`, suggest adding it to `.gitignore`. Don't push or open a PR unless asked.
+Then check it yourself with `git log --oneline <base>..HEAD` and `git diff --stat <base>..HEAD`, and run the checks once. You don't need the full diff: the review has read it. If `.claude/worktrees/` shows up as untracked in `git status`, suggest adding it to `.gitignore`. Don't push or open a PR unless asked.
