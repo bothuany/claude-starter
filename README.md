@@ -4,7 +4,7 @@
 
 [![version](https://img.shields.io/badge/version-0.5.0-blue)](plugins/starter/.claude-plugin/plugin.json)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757)](https://code.claude.com)
-[![tests](https://img.shields.io/badge/tests-27%20passing-brightgreen)](test/scripts.test.mjs)
+[![tests](https://img.shields.io/badge/tests-28%20passing-brightgreen)](test/scripts.test.mjs)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 Most Claude Code setups add generic "senior engineer" agents and hope for the best. This one is a handful of pieces, each doing something the model doesn't do by default, and the ones that change how Claude works (the rules, the review gate, fan-out) were run through a benchmark harness before they shipped. Where a piece didn't earn its cost, it got cut or fenced in, and this README says so.
@@ -116,7 +116,7 @@ Worktrees often hold symlinks, or NTFS junctions on Windows, into the main check
 - holds gitignored files, unless you allow it after seeing the list;
 - is in use by another program (checked on Windows).
 
-It checks "merged" against your local branch, so unpushed merges count. The scripts have 27 regression tests, run against throwaway repositories.
+It checks "merged" against your local branch, so unpushed merges count. The scripts have 28 regression tests, run against throwaway repositories.
 
 ## The evidence
 

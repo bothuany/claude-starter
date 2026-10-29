@@ -116,13 +116,14 @@ export function foreignMove(cwd, head) {
     const [sha, ...subject] = line.split(' ')
     return { sha, subject: subject.join(' ') }
   })
+  // The entry that reached `head` is what put HEAD there before the session, so stop before judging it.
   for (const [i, { sha, subject }] of entries.entries()) {
+    if (sha === head) {
+      return false
+    }
     const moved = !entries[i + 1] || entries[i + 1].sha !== sha
     if (moved && FOREIGN_REFLOG.test(subject)) {
       return true
-    }
-    if (sha === head) {
-      return false
     }
   }
   return true

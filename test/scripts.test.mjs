@@ -378,6 +378,19 @@ test('the review gate still asks when Claude branches before committing its own 
   assert.equal(hook('stop').decision, 'block')
 })
 
+test('the review gate still asks when the checkout or pull that put HEAD there came before the session', () => {
+  const { repo, hook, edit } = gateRepo()
+  git(repo, 'checkout', '-qb', 'other')
+  git(repo, 'commit', '-q', '--allow-empty', '-m', 'other')
+  git(repo, 'checkout', '-q', 'main')
+  git(repo, 'checkout', '-q', 'other')
+  hook('start')
+  edit('src/a.js', 'a\n'.repeat(20))
+  edit('src/b.js', 'b\n'.repeat(20))
+  git(repo, 'commit', '-qam', 'own work')
+  assert.equal(hook('stop').decision, 'block')
+})
+
 test('the review gate ignores a merge or pull from outside the session, and turns without tool calls', () => {
   const { repo, hook } = gateRepo()
   hook('start')
