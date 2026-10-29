@@ -1,6 +1,6 @@
 ---
 name: fan-out
-description: Run an approved plan's independent parts as parallel implementer subagents (Sonnet, each in its own git worktree), then merge and verify in the main session. Use when an approved plan has 3 or more parts that share no files and don't need each other's results, or when the user asks to split a plan across subagents.
+description: Run an approved plan's independent parts as parallel implementer subagents (Sonnet, each in its own git worktree), merge them in the main session, then have one reviewer subagent review the merged result. Use when an approved plan has 3 or more parts that share no files and don't need each other's results, and the parts are large (see the scope check in step 1); or when the user asks to split a plan across subagents. For a plan of small parts, implement it in the main session instead.
 argument-hint: "[plan file or the parts to run]"
 ---
 
@@ -12,7 +12,13 @@ Take the plan from `$ARGUMENTS`, the plan file it names, or the plan approved in
 
 Shared files are what usually break this: type or interface definitions, a route or command registry, a package manifest, a central config, a schema. A part that needs one of them either gets its piece of the contract in step 2 or stays in the main session.
 
-Fewer than 3 qualifying parts: say so and implement in the main session. More than 5: spawn 5 in one message and start the next as one finishes.
+**Scope check.** Fan-out costs about twice the tokens of one session doing the same work. It pays only when each part needs much more reading and editing than the main session spends on merging and verifying it. In a pilot, a plan of 4 parts of about 100 lines each gained nothing: same result, 2× the cost, about the same time, and no smaller main context. Go on only when:
+- 3 or more parts qualify, **and**
+- at least 2 of them are large: each touches several files, or adds or changes more than about 200 lines, or needs reading code that no other part reads.
+
+Otherwise say in one line why (for example "4 small parts, about 100 lines each: one session is cheaper") and implement the plan in the main session. If the user explicitly asked for fan-out, skip this check. The 200-line mark is a rough guide, not a measured threshold.
+
+More than 5 parts: spawn 5 in one message and start the next as one finishes.
 
 Show the split as a short table (part, files owned, contract it uses) and ask for the go-ahead with AskUserQuestion. Settle every open design question now: workers can't ask the user.
 
@@ -43,7 +49,9 @@ As each worker reports, note its worktree path and branch from the agent's resul
 
 ## 5. Verify and clean up
 
-After the last merge, run the checks that cover everything that changed, then call the `code-review` skill on the combined diff (args `medium <commit from step 2>..HEAD`) and wait for its findings. Report one line per part (merged or not, branch, checks), then what the review found.
+After the last merge, run the checks that cover everything that changed. Then spawn **one** `starter:reviewer` subagent for the whole merged result (not one per part), and wait for its report. Its brief gives the commit from step 2, the plan (file path or text), the parts with the files each owned, and the check commands. It runs the `code-review` skill at high effort on `<commit>..HEAD` and checks the result against the plan.
+
+Fix what it finds in the main session and re-run the checks; don't spawn a second review for the fixes. Report one line per part (merged or not, branch, checks), then the review's findings and what you fixed.
 
 Then remove the worktrees and branches of the workers you merged, and only those, with the starter's safe script (never a plain `git worktree remove --force`: a worktree may hold links into the main checkout). `--into` is the branch you merged into, from step 2: the merges aren't pushed, so the script must not compare against `origin/...`.
 
