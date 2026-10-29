@@ -40,12 +40,13 @@ Then, in a session:
 | Working rules | `~/.claude/CLAUDE.md` block (about 500 tokens, via `/starter:setup`) | Ask before assuming, docs first, web research routing, when to delegate and when not to, verify before done. Read them in [`plugins/starter/rules.md`](plugins/starter/rules.md) |
 | `fan-out` | Skill (Claude may use it on its own) | Split an approved plan into independent parts, commit the shared contract, run `implementer` workers in parallel, then read each diff, merge one at a time, check, then run `code-review` at high effort once on the merged result, verify its findings and check the result against the plan. Only for plans with large parts; small plans stay in the main session |
 | `implementer` | Subagent (Sonnet, `isolation: worktree`) | Builds one part inside the files it owns, commits, and reports in 10 lines |
+| Review gate | `Stop` hook (plus a `SessionStart` snapshot) | When the session's change since the last review reaches 2+ non-test files or 50+ non-test lines (tests and docs not counted) and `code-review` hasn't run, it asks Claude once to run it before stopping. Committed changes count too. A review resets the base, so follow-up fixes don't trigger another. Turn it off with `node <plugin>/scripts/review-gate.mjs off`. Security, data and concurrency changes below the threshold are left to the rules |
 | `clean-worktrees` | Skill (you run it) | Lists worktrees and branches, then removes the clean, merged ones after you confirm. It refuses anything with uncommitted or untracked files, an unreadable git status, or commits that no branch holds |
 | `setup` | Skill (you run it) | Installs and updates the pieces above that a plugin can't ship |
 | `monthly-review` | Skill (you run it) plus a session-start reminder | Runs `/insights`, checks its suggestions against your setup, applies at most two after you choose, and prunes auto memory. The reminder appears once a day when the review is due |
 | context7 | Optional MCP server (HTTP, no key needed), added by `/starter:setup` | Current library documentation. Add an API key yourself for higher rate limits ([context7](https://github.com/upstash/context7)) |
 
-**Context cost, measured.** The rules are about 500 tokens. `claude plugin details starter` estimates about 480 more for the skill and agent descriptions, but it counts all four skills. `setup`, `clean-worktrees` and `monthly-review` are user-only (`disable-model-invocation`), so their descriptions don't load; what Claude sees is `fan-out` and `implementer`, about 240 tokens. If you add context7, its tool schemas come on top, and Claude Code loads them on demand; setup doesn't add a second one when you already have yours. The SessionStart hook adds nothing to the context.
+**Context cost, measured.** The rules are about 500 tokens. `claude plugin details starter` estimates about 480 more for the skill and agent descriptions, but it counts all four skills. `setup`, `clean-worktrees` and `monthly-review` are user-only (`disable-model-invocation`), so their descriptions don't load; what Claude sees is `fan-out` and `implementer`, about 240 tokens. If you add context7, its tool schemas come on top, and Claude Code loads them on demand; setup doesn't add a second one when you already have yours. The SessionStart hooks add nothing to the context; the review gate adds one short instruction only on a stop it blocks.
 
 Optional:
 
@@ -64,7 +65,7 @@ Optional:
 
 - **Worker dependencies.** A worktree is a fresh checkout without installed dependencies. Before spawning workers, `fan-out` decides how they will run checks: the project's `.worktreeinclude`, the `worktree.symlinkDirectories` setting, a cheap install, or checks that need none. For a big project, set this up once per repository.
 - **`worktree.baseRef: "head"`** also makes `claude --worktree` sessions start from your current HEAD instead of a clean default branch. That is why setup offers it per project, in the project's `.claude/settings.local.json`.
-- **Rule effects are probabilistic.** The rules make the behaviour likely, not guaranteed. If you need a guarantee, use a hook in that project.
+- **Rule effects are probabilistic.** The rules make the behaviour likely, not guaranteed; Sonnet in long sessions skipped the review rule most of the time. That's why the review has a `Stop` hook. For other rules you need guaranteed, use a hook in that project.
 
 ## Pilot results
 

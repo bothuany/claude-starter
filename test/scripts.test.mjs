@@ -283,3 +283,79 @@ test('setup sets worktree.baseRef for the project by default, for the user with 
   assert.match(run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'user'], join(project, 'sub'), env).out, /higher-precedence .* "fresh"/)
   assert.equal(run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'team'], project, env).status, 1)
 })
+
+// Review gate: a repository, a plugin data dir and a transcript file, with a helper that runs one hook event.
+function gateRepo() {
+  const root = mkdtempSync(join(tmpdir(), 'starter-gate-'))
+  const repo = join(root, 'repo')
+  mkdirSync(join(repo, 'src'), { recursive: true })
+  git(repo, 'init', '-q', '-b', 'main')
+  git(repo, 'config', 'user.email', 't@t')
+  git(repo, 'config', 'user.name', 't')
+  writeFileSync(join(repo, 'src', 'a.js'), 'a\n')
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-qm', 'init')
+  const transcript = join(root, 'transcript.jsonl')
+  writeFileSync(transcript, '')
+  const env = { CLAUDE_PLUGIN_DATA: join(root, 'data') }
+  const hook = (event, extra = {}) => {
+    const input = JSON.stringify({ session_id: 's1', cwd: repo, transcript_path: transcript, ...extra })
+    const result = spawnSync(process.execPath, [join(scripts, 'review-gate.mjs'), event], { cwd: repo, input, encoding: 'utf8', env: { ...process.env, ...env } })
+    return result.stdout.trim() ? JSON.parse(result.stdout) : null
+  }
+  const reviewCall = () => writeFileSync(transcript, readFileSync(transcript, 'utf8') +
+    JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill: 'code-review', args: 'medium' } }] } }) + '\n')
+  return { root, repo, env, hook, reviewCall }
+}
+
+test('the review gate lets small changes, tests and docs through', () => {
+  const { repo, hook } = gateRepo()
+  hook('start')
+  writeFileSync(join(repo, 'src', 'a.js'), 'a\nb\n')
+  mkdirSync(join(repo, 'test'))
+  writeFileSync(join(repo, 'test', 'a.test.js'), 'x\n'.repeat(200))
+  writeFileSync(join(repo, 'README.md'), 'x\n'.repeat(200))
+  assert.equal(hook('stop'), null)
+})
+
+test('the review gate blocks once for 2 non-test files, and a review clears it', () => {
+  const { repo, hook, reviewCall } = gateRepo()
+  hook('start')
+  writeFileSync(join(repo, 'src', 'a.js'), 'a\nb\n')
+  writeFileSync(join(repo, 'src', 'b.js'), 'new\n')
+  const blocked = hook('stop')
+  assert.equal(blocked.decision, 'block')
+  assert.match(blocked.reason, /2 non-test file/)
+  // Claude continued because of the gate: it must be able to stop now.
+  assert.equal(hook('stop', { stop_hook_active: true }), null)
+  // A later stop without a review asks again; after a review it doesn't, and small fixes stay under the new base.
+  assert.equal(hook('stop').decision, 'block')
+  reviewCall()
+  assert.equal(hook('stop'), null)
+  writeFileSync(join(repo, 'src', 'b.js'), 'new\nfix\n')
+  assert.equal(hook('stop'), null)
+})
+
+test('the review gate counts committed changes and more than 50 lines in one file', () => {
+  const { repo, hook } = gateRepo()
+  hook('start')
+  writeFileSync(join(repo, 'src', 'a.js'), 'x\n'.repeat(60))
+  git(repo, 'commit', '-qam', 'big')
+  assert.equal(hook('stop').decision, 'block')
+})
+
+test('the review gate stays silent when off, or outside a git repository', () => {
+  const { root, repo, env, hook } = gateRepo()
+  hook('start')
+  writeFileSync(join(repo, 'src', 'b.js'), 'new\n')
+  writeFileSync(join(repo, 'src', 'c.js'), 'new\n')
+  run('review-gate.mjs', ['off', '--data', env.CLAUDE_PLUGIN_DATA], repo)
+  assert.equal(hook('stop'), null)
+  run('review-gate.mjs', ['on', '--data', env.CLAUDE_PLUGIN_DATA], repo)
+  assert.equal(hook('stop').decision, 'block')
+  const plain = join(root, 'plain')
+  mkdirSync(plain)
+  const result = spawnSync(process.execPath, [join(scripts, 'review-gate.mjs'), 'stop'], { cwd: plain, input: JSON.stringify({ session_id: 's2', cwd: plain }), encoding: 'utf8', env: { ...process.env, ...env } })
+  assert.equal(result.stdout.trim(), '')
+  assert.equal(result.status, 0)
+})
