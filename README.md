@@ -4,7 +4,7 @@
 
 [![version](https://img.shields.io/badge/version-0.5.0-blue)](plugins/starter/.claude-plugin/plugin.json)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-d97757)](https://code.claude.com)
-[![tests](https://img.shields.io/badge/tests-26%20passing-brightgreen)](test/scripts.test.mjs)
+[![tests](https://img.shields.io/badge/tests-27%20passing-brightgreen)](test/scripts.test.mjs)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 Most Claude Code setups add generic "senior engineer" agents and hope for the best. This one is a handful of pieces, each doing something the model doesn't do by default, and the ones that change how Claude works (the rules, the review gate, fan-out) were run through a benchmark harness before they shipped. Where a piece didn't earn its cost, it got cut or fenced in, and this README says so.
@@ -116,7 +116,7 @@ Worktrees often hold symlinks, or NTFS junctions on Windows, into the main check
 - holds gitignored files, unless you allow it after seeing the list;
 - is in use by another program (checked on Windows).
 
-It checks "merged" against your local branch, so unpushed merges count. The scripts have 26 regression tests, run against throwaway repositories.
+It checks "merged" against your local branch, so unpushed merges count. The scripts have 27 regression tests, run against throwaway repositories.
 
 ## The evidence
 
@@ -199,7 +199,7 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 ## Limits to know
 
 - **Rules are probabilistic.** That's why the review has a hook. For other rules you need guaranteed, use a hook in that project.
-- **Known gap in the review gate.** If Claude creates a new branch (`git checkout -b`) and commits in the same turn, the gate treats the checkout as an outside change and doesn't ask. A fix is planned.
+- **What the gate counts as "not this session".** A checkout that moves HEAD to another commit, a pull, merge, reset or rebase moves the base, even when Claude ran it. Creating a branch (`git checkout -b`) doesn't, so Claude's own work is still asked about after it branches.
 - **Gate cost on big repos.** Each check runs `git add -A` into a private index, so very large untracked files or Git LFS clean filters slow it down. Turn it off with `/starter:setup` or `CLAUDE_STARTER_REVIEW_GATE=off` in settings `env`.
 - **Worker dependencies.** A worktree is a fresh checkout. Before spawning workers, fan-out decides how they get dependencies: `.worktreeinclude`, `worktree.symlinkDirectories`, a cheap install, or checks that need none.
 - **`worktree.baseRef: "head"`** also makes `claude --worktree` sessions start from your current HEAD. That's why setup sets it per project.

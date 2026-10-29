@@ -101,7 +101,9 @@ export function scanTranscript(transcriptPath, from) {
 }
 
 // Whether HEAD moved since `head` through something other than this session's own commits: a pull, merge,
-// checkout, reset or rebase in HEAD's reflog.
+// checkout, reset or rebase in HEAD's reflog. An entry that left HEAD on the same commit (`checkout -b`, `switch -c`)
+// brought nothing in, so Claude branching before it commits its own work doesn't hide that work from the gate.
+// Claude's own merge, pull or rebase still count as foreign; fan-out reviews its merges at step 5 anyway.
 export function foreignMove(cwd, head) {
   if (!head) {
     return false
@@ -110,10 +112,13 @@ export function foreignMove(cwd, head) {
   if (current === head) {
     return false
   }
-  const entries = git(cwd, ['reflog', '-n', '100', '--format=%H %gs', 'HEAD']).split('\n')
-  for (const entry of entries) {
-    const [sha, ...subject] = entry.split(' ')
-    if (FOREIGN_REFLOG.test(subject.join(' '))) {
+  const entries = git(cwd, ['reflog', '-n', '100', '--format=%H %gs', 'HEAD']).split('\n').map(line => {
+    const [sha, ...subject] = line.split(' ')
+    return { sha, subject: subject.join(' ') }
+  })
+  for (const [i, { sha, subject }] of entries.entries()) {
+    const moved = !entries[i + 1] || entries[i + 1].sha !== sha
+    if (moved && FOREIGN_REFLOG.test(subject)) {
       return true
     }
     if (sha === head) {

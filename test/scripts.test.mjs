@@ -366,6 +366,18 @@ test('the review gate counts committed changes and more than 50 lines in one fil
   assert.equal(hook('stop').decision, 'block')
 })
 
+test('the review gate still asks when Claude branches before committing its own work', () => {
+  const { repo, hook, edit } = gateRepo()
+  hook('start')
+  edit('src/a.js', 'a\n'.repeat(20))
+  edit('src/b.js', 'b\n'.repeat(20))
+  // `checkout -b` leaves HEAD on the same commit, so it brings nothing in from outside.
+  git(repo, 'checkout', '-qb', 'feature')
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-qm', 'own work')
+  assert.equal(hook('stop').decision, 'block')
+})
+
 test('the review gate ignores a merge or pull from outside the session, and turns without tool calls', () => {
   const { repo, hook } = gateRepo()
   hook('start')
