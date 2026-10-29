@@ -60,14 +60,18 @@ As each worker reports, note its worktree path and branch from the agent's resul
 After the last merge, run the checks that cover everything that changed. Then review the merged result once (not once per part):
 
 1. Call the `code-review` skill with the Skill tool, args `high <commit from step 2>..HEAD`, and wait for its findings. It runs in its own forked context and sees only the diff, so it reads the code without your assumptions. At high effort it favours recall and doesn't verify its findings.
-2. Verify each finding against the code before you act on it: read the lines, and where you can, show it with a command or a short failing test. Fix the confirmed ones. Dismiss the rest, and give one line on why for each.
-3. Check the result against the plan, which a diff review can't see:
-   - every item of the plan is implemented and has a test;
+2. You designed the contract and merged this code, so you lean toward dismissing findings. Give each one of three outcomes, with evidence:
+   - **confirmed**: you read the lines and, where you can, showed it with a command or a short failing test. Fix it.
+   - **dismissed**: only with evidence that it's wrong (the line you read, or a command you ran and its output).
+   - **unverified**: you can't confirm or refute it cheaply. Don't fix or dismiss it; report it to the user.
+   When in doubt, it's unverified, not dismissed.
+3. Check the result against the plan, which a diff review can't see. Do it mechanically, not from memory:
+   - make a table of every plan item with the `file:line` that implements it and the name of the test that covers it. An item without both is missing;
    - the parts use the shared contract the same way (names, types, error behaviour);
    - the parts work together: if the plan says how they combine, try that path.
 4. Re-run the checks after your fixes. Don't run a second review for them.
 
-Report one line per part (merged or not, branch, checks), then the confirmed findings and what you fixed, the dismissed ones with their reason, and any plan item you found missing.
+Report one line per part (merged or not, branch, checks), then the plan table, the confirmed findings and what you fixed, the dismissed ones with their evidence, and the unverified ones for the user to decide.
 
 Then remove the worktrees and branches of the workers you merged, and only those, with the starter's safe script (never a plain `git worktree remove --force`: a worktree may hold links into the main checkout). `--into` is the branch you merged into, from step 2: the merges aren't pushed, so the script must not compare against `origin/...`.
 
