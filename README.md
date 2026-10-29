@@ -3,9 +3,9 @@
 A small user-level setup for [Claude Code](https://code.claude.com). It does a few things that most setups leave to the user typing them every time, and leaves out the generic "senior engineer" agents and coding/review skills that the model already does well without them.
 
 - **Asks before it assumes.** When a request is ambiguous in a way that changes the result, Claude asks with multiple-choice questions before writing code, and doesn't ask what it can look up.
-- **Keeps the main context clean.** Wide searches go to a subagent. An approved plan with 3+ independent parts runs as parallel Sonnet workers, each in its own git worktree, merged and checked by the main session.
+- **Delegates wide searches.** Wide searches go to a subagent. An approved plan with 3+ independent parts, at least 2 of them large, can run as parallel Sonnet workers in their own git worktrees, merged by the main session and reviewed once. Automatic fan-out is an unmeasured bet: in the pilot below, on small parts, it cost 2x and did not shrink the main session's context.
 - **Checks the docs, not its memory.** The rules tell Claude to look up a third-party API before writing against it, with the context7 MCP when you add it (`/starter:setup` offers it) or the official docs.
-- **Verifies before saying done.** It runs the project's checks and the bundled `/code-review`, and says what it didn't verify.
+- **Verifies before saying done.** It runs the project's checks, calls the bundled `/code-review` for changes past a size threshold (2+ non-test files, about 50+ lines, or security, data or concurrency code), and says what it didn't verify.
 - **Cleans up after itself.** A safe worktree and branch cleanup that never deletes through links into your main checkout.
 
 ## Install
@@ -40,7 +40,7 @@ Then, in a session:
 | Working rules | `~/.claude/CLAUDE.md` block (about 500 tokens, via `/starter:setup`) | Ask before assuming, docs first, web research routing, when to delegate and when not to, verify before done. Read them in [`plugins/starter/rules.md`](plugins/starter/rules.md) |
 | `fan-out` | Skill (Claude may use it on its own) | Split an approved plan into independent parts, commit the shared contract, run `implementer` workers in parallel, then read each diff, merge one at a time, check, and have one `reviewer` review the merged result. Only for plans with large parts; small plans stay in the main session |
 | `implementer` | Subagent (Sonnet, `isolation: worktree`) | Builds one part inside the files it owns, commits, and reports in 10 lines |
-| `reviewer` | Subagent (main session's model, read-only) | After a fan-out, runs `code-review` at high effort on the combined diff and checks the merged result against the plan: missing items, parts using the contract differently, parts that don't work together |
+| `reviewer` | Subagent (main session's model, instructed not to edit) | After a fan-out, runs `code-review` at high effort on the combined diff and checks the merged result against the plan: missing items, parts using the contract differently, parts that don't work together |
 | `clean-worktrees` | Skill (you run it) | Lists worktrees and branches, then removes the clean, merged ones after you confirm. It refuses anything with uncommitted or untracked files, an unreadable git status, or commits that no branch holds |
 | `setup` | Skill (you run it) | Installs and updates the pieces above that a plugin can't ship |
 | `monthly-review` | Skill (you run it) plus a session-start reminder | Runs `/insights`, checks its suggestions against your setup, applies at most two after you choose, and prunes auto memory. The reminder appears once a day when the review is due |
@@ -56,10 +56,10 @@ Optional:
 ## Design choices
 
 - **Few pieces, each one doing something the model doesn't do by default.** No generic coder, architect or reviewer agents: they add context at every session and little behaviour.
-- **One reviewer, only after a fan-out.** The bundled `/code-review` reviews a diff; after a fan-out, the risk is also between the parts and against the plan, which a diff review doesn't see. So `fan-out` ends with one `reviewer` for the whole merged result, never one per worker. For ordinary changes, the rules call `/code-review` directly.
+- **One reviewer, only after a fan-out.** The bundled `/code-review` reviews a diff; after a fan-out, the risk is also between the parts and against the plan, which a diff review doesn't see. So `fan-out` ends with one `reviewer` for the whole merged result, never one per worker. It runs in its own context so it reads code it didn't write without the orchestrator's assumptions, and it reports only findings it confirmed. Its cost isn't measured yet. For ordinary changes, the rules call `/code-review` directly.
 - **Rules live in CLAUDE.md, not in a SessionStart hook.** You can read and edit them, their cost is fixed and small, and nothing forces skill use on every message.
 - **Questions come from the main session.** Subagents can't use AskUserQuestion, so the rules and `fan-out` settle open questions before delegating.
-- **Parallel only when it pays.** Coding parallelizes less than research ([Anthropic's multi-agent write-up](https://www.anthropic.com/engineering/multi-agent-research-system) reports about 15× the tokens of a chat for multi-agent runs). `fan-out` needs 3+ parts that share no files, and stops otherwise.
+- **Parallel only when it pays.** Coding parallelizes less than research ([Anthropic's multi-agent write-up](https://www.anthropic.com/engineering/multi-agent-research-system) reports about 15× the tokens of a chat for multi-agent runs). `fan-out` needs 3+ parts that share no files, at least 2 of them large (more than about 200 non-test lines or 3+ non-test files), and implements the plan in one session otherwise. That threshold is a guess; only the low end is measured.
 
 ## Limits to know
 
@@ -74,7 +74,7 @@ A small pilot (Harbor, Claude Code 2.1.312, Opus 5.5 main session, Sonnet worker
 - **Rules vs none** (4 tasks × 3 each).
   - Same success: 9/12 in both arms; the misses were the same unasked contract bug on one task.
   - The rules ran `code-review` in 12/12 trials, against 0/12 without them.
-  - The review led to no code change in any trial. Cost was about 2× ($0.25 vs $0.13 per task) and agent time 1.8×.
+  - The review led to no code change in any trial. Cost was about 2× ($0.25 vs $0.13 per task) and agent time 1.8×. These tasks were already right or wrong in ways the review also missed, so this doesn't show the review is useless, only that it is costly on small changes. Since 0.4.0 the rules skip it below a size threshold.
   - Headless runs can't show the "ask first" effect: Claude can't ask in `claude -p`.
 - **Fan-out vs one session** (an approved 4-part plan × 3 each).
   - Same success: 3/3, 44/44 hidden tests.

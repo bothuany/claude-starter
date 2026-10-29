@@ -57,9 +57,9 @@ As each worker reports, note its worktree path and branch from the agent's resul
 
 ## 5. Verify and clean up
 
-After the last merge, run the checks that cover everything that changed. Then spawn **one** `starter:reviewer` subagent for the whole merged result (not one per part), and wait for its report. Its brief gives the commit from step 2, the plan (file path or text), the parts with the files each owned, and the check commands. It runs the `code-review` skill at high effort on `<commit>..HEAD` and checks the result against the plan.
+After the last merge, run the checks that cover everything that changed. Then spawn **one** `starter:reviewer` subagent for the whole merged result (not one per part), and wait for its report. A reviewer that wrote none of the code reads it without your assumptions. Its brief gives the commit from step 2, the plan (file path or text), the parts with the files each owned, the check commands and their results. It runs the `code-review` skill at high effort on `<commit>..HEAD`, checks the result against the plan, and reports only findings it confirmed.
 
-Fix what it finds in the main session and re-run the checks; don't spawn a second review for the fixes. Report one line per part (merged or not, branch, checks), then the review's findings and what you fixed.
+Fix what it finds in the main session and re-run the checks. If a finding looks wrong to you, check the code before you dismiss it, and say why. Don't spawn a second review for the fixes. Report one line per part (merged or not, branch, checks), then the review's findings and what you fixed.
 
 Then remove the worktrees and branches of the workers you merged, and only those, with the starter's safe script (never a plain `git worktree remove --force`: a worktree may hold links into the main checkout). `--into` is the branch you merged into, from step 2: the merges aren't pushed, so the script must not compare against `origin/...`.
 
