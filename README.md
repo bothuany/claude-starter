@@ -66,6 +66,22 @@ Optional:
 - **`worktree.baseRef: "head"`** also makes `claude --worktree` sessions start from your current HEAD instead of a clean default branch. That is why setup offers it per project, in the project's `.claude/settings.local.json`.
 - **Rule effects are probabilistic.** The rules make the behaviour likely, not guaranteed. If you need a guarantee, use a hook in that project.
 
+## Pilot results
+
+A small pilot (Harbor, Claude Code 2.1.312, Opus 5.5 main session, Sonnet workers, 3 repeats per cell, small Node repos with hidden tests, October 2026). Read the numbers as a direction, not an effect size.
+
+- **Rules vs none** (4 tasks × 3 each).
+  - Same success: 9/12 in both arms; the misses were the same unasked contract bug on one task.
+  - The rules ran `code-review` in 12/12 trials, against 0/12 without them.
+  - The review led to no code change in any trial. Cost was about 2× ($0.25 vs $0.13 per task) and agent time 1.8×.
+  - Headless runs can't show the "ask first" effect: Claude can't ask in `claude -p`.
+- **Fan-out vs one session** (an approved 4-part plan × 3 each).
+  - Same success: 3/3, 44/44 hidden tests.
+  - With the plugin installed, Claude chose `fan-out` on its own every time.
+  - Fan-out cost about 2× ($2.3–2.5 vs $1.2) for about the same wall-clock time.
+  - It did **not** shrink the main session's context: the peak was 58–62k tokens vs 52k. Merging and re-testing four parts cost about as much as writing them.
+  - Fan-out should pay off when each part needs much more reading and editing than this. For plans of a few small parts, one session is cheaper.
+
 ## Keep improving it: a monthly review
 
 The starter doesn't create skills or memories on its own. Tools that do (such as Hermes Agent's background skill writer) tend to pile up narrow, near-duplicate skills, and auto-written context has no evidence of helping coding agents. Instead it reminds you, and does the legwork when you say so:
