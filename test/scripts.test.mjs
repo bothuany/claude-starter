@@ -345,6 +345,19 @@ test('the review gate asks once per change set; a review or an answer moves the 
   assert.equal(hook('stop'), null)
 })
 
+test('the review gate does not ask again after a one-line answer with no tool call', () => {
+  const { hook, edit } = gateRepo()
+  hook('start')
+  edit('src/a.js', 'a\n'.repeat(20))
+  edit('src/b.js', 'b\n'.repeat(20))
+  assert.equal(hook('stop').decision, 'block')
+  // Claude declined in one line: no new transcript lines before the stop that follows the gate.
+  assert.equal(hook('stop', { stop_hook_active: true }), null)
+  // The next turn touches a file but changes nothing new: the same change set must not be asked about again.
+  edit('src/a.js', 'a\n'.repeat(20))
+  assert.equal(hook('stop'), null)
+})
+
 test('the review gate counts committed changes and more than 50 lines in one file', () => {
   const { repo, hook, edit } = gateRepo()
   hook('start')

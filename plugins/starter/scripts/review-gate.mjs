@@ -186,7 +186,7 @@ function stop(input) {
     : { base: git(cwd, ['rev-parse', 'HEAD^{tree}']), head: headOf(cwd), transcriptLines: 0 }
   const scan = scanTranscript(input.transcript_path, state.transcriptLines)
   const foreign = foreignMove(cwd, state.head)
-  if (!scan.reviewed && !scan.edited && !foreign) {
+  if (!scan.reviewed && !scan.edited && !foreign && !input.stop_hook_active) {
     // Nothing since the last check could have changed files: skip the snapshot.
     save(files.state, { ...state, transcriptLines: scan.lines })
     return
