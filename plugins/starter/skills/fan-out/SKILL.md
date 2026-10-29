@@ -12,11 +12,19 @@ Take the plan from `$ARGUMENTS`, the plan file it names, or the plan approved in
 
 Shared files are what usually break this: type or interface definitions, a route or command registry, a package manifest, a central config, a schema. A part that needs one of them either gets its piece of the contract in step 2 or stays in the main session.
 
-**Scope check.** Fan-out costs about twice the tokens of one session doing the same work. It pays only when each part needs much more reading and editing than the main session spends on merging and verifying it. In a pilot, a plan of 4 parts of about 100 lines each gained nothing: same result, 2× the cost, about the same time, and no smaller main context. Go on only when:
-- 3 or more parts qualify, **and**
-- at least 2 of them are large: each touches several files, or adds or changes more than about 200 lines, or needs reading code that no other part reads.
+**Scope check, before anything else.** Fan-out costs about twice the tokens of one session doing the same work. It pays only when each part needs much more reading and editing than the main session spends on merging and verifying it. In a pilot, a plan of 4 parts of about 100 to 150 lines each gained nothing: same result, 2x the cost, about the same time, and no smaller main context.
 
-Otherwise say in one line why (for example "4 small parts, about 100 lines each: one session is cheaper") and implement the plan in the main session. If the user explicitly asked for fan-out, skip this check. The 200-line mark is a rough guide, not a measured threshold.
+A part is **large** when its non-test code is expected to be more than about 200 lines, or it changes 3 or more non-test files, or it needs reading code that no other part reads. Tests don't count toward either number.
+
+Write this line first, filled in:
+
+`Scope: <n> qualifying parts; estimated non-test lines per part: <a, b, c, ...>; large parts: <k> -> <fan-out | main session>`
+
+- Fan out only when n is 3 or more **and** k is 2 or more.
+- Otherwise implement the plan in the main session and stop following this skill.
+- If the user explicitly asked for fan-out, write the line anyway, then fan out.
+
+The 200-line mark is a rough guide, not a measured threshold.
 
 More than 5 parts: spawn 5 in one message and start the next as one finishes.
 

@@ -8,7 +8,7 @@
 
 **Delegate to keep the main context clean.**
 - Wide searches and reading many files go to a subagent (Explore) that returns conclusions, not file dumps.
-- An approved plan with 3 or more independent parts (no shared files, none needs another's result), at least 2 of them large (several files or more than about 200 lines each), runs through the `starter:fan-out` skill. Everything else stays in the main session, including plans of many small parts: parallel coding pays off less than it looks.
+- An approved plan with 3 or more independent parts (no shared files, none needs another's result), at least 2 of them large (more than about 200 lines of non-test code, or 3 or more non-test files each), runs through the `starter:fan-out` skill. Everything else stays in the main session, including plans of many small parts: parallel coding pays off less than it looks.
 - A subagent brief is self-contained: the goal, the files it owns, the contract it must follow, what "done" means and how to check it. Read the diff a worker produced; don't trust its summary.
 
 **Verify before you say done.** Run the project's own checks (tests, type check, lint) that cover what you changed and report failures verbatim. When you changed behaviour (anything beyond a typo, a rename or a one-line fix) and no fan-out reviewer already covered it, call the `code-review` skill with the Skill tool (args `low` for a small change, `medium` otherwise), wait for its findings before your final message, and fix or report what it finds. Skipping it needs a reason you state. Say plainly what you did not verify.
