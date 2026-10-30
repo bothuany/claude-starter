@@ -80,14 +80,15 @@ const VERDICT = {
 
 phase('Plan')
 const plan = await agent(`You prepare an approved plan for implementation. Don't implement the parts.
-
+${A.forceFanOut ? 'The user asked for fan-out explicitly: choose "fan-out" whenever there are at least 2 qualifying parts, whatever their size. Write the scope line anyway.
+' : ''}
 Plan: ${A.plan}
 Checks: ${A.checks}
 
 1. Record the current branch and HEAD (\`git rev-parse --abbrev-ref HEAD\`, \`git rev-parse HEAD\`) before changing anything.
 2. Split the plan into parts. A part qualifies only when no other part touches its files and it needs no other part's result, only a shared contract. Shared files (type or interface definitions, a registry or index, a manifest, a central config) belong to the contract, not to a part.
 3. Estimate each part's non-test lines. A part is large when it is more than about 200 non-test lines, or 3 or more non-test files, or it needs reading code no other part reads. Choose:
-   - "fan-out" when there are 3 or more qualifying parts and at least 2 are large${A.forceFanOut ? ', or since the user asked for fan-out explicitly, whenever there are at least 2 qualifying parts' : ''};
+   - "fan-out" when there are 3 or more qualifying parts and at least 2 are large${A.forceFanOut ? ', or, as the user asked for it, whenever there are at least 2 qualifying parts' : ''};
    - otherwise "one-session".
    Write the scope line.
 4. For fan-out only: write the shared contract (exports, types, stubs that make the checks pass), run the checks, and commit it on the current branch. For one-session, commit nothing.
