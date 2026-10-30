@@ -6,9 +6,9 @@
 </p>
 
 <p align="center">
-  <a href="plugins/starter/.claude-plugin/plugin.json"><img src="https://img.shields.io/badge/version-0.6.0-111111?style=flat-square" alt="version 0.6.0"></a>
+  <a href="plugins/starter/.claude-plugin/plugin.json"><img src="https://img.shields.io/badge/version-0.6.1-111111?style=flat-square" alt="version 0.6.1"></a>
   <a href="https://code.claude.com"><img src="https://img.shields.io/badge/Claude%20Code-plugin-d97757?style=flat-square" alt="Claude Code plugin"></a>
-  <a href="test/scripts.test.mjs"><img src="https://img.shields.io/badge/tests-28%20passing-2ea44f?style=flat-square" alt="28 tests passing"></a>
+  <a href="test/scripts.test.mjs"><img src="https://img.shields.io/badge/tests-29%20passing-2ea44f?style=flat-square" alt="29 tests passing"></a>
   <img src="https://img.shields.io/badge/always--on-~650%20tokens-111111?style=flat-square" alt="about 650 always-on tokens">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111?style=flat-square" alt="MIT license"></a>
 </p>

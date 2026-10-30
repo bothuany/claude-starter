@@ -436,3 +436,12 @@ test('setup shows and switches the review gate', () => {
   run('setup.mjs', ['apply', '--review-gate', 'on', '--data', env.CLAUDE_PLUGIN_DATA], dir, env)
   assert.equal(state(), 'on')
 })
+
+test('every plugin workflow script parses as plain JavaScript', () => {
+  const dir = join(scripts, '..', 'workflows')
+  for (const name of readdirSync(dir).filter(f => f.endsWith('.js'))) {
+    // The workflow runtime runs the body in an async context with these globals; `export const meta` is its header.
+    const body = readFileSync(join(dir, name), 'utf8').replace(/^export const meta/m, 'const meta')
+    assert.doesNotThrow(() => new Function('args', 'agent', 'parallel', 'pipeline', 'phase', 'log', 'budget', 'workflow', `return (async () => {\n${body}\n})()`), name)
+  }
+})

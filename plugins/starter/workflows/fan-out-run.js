@@ -80,8 +80,7 @@ const VERDICT = {
 
 phase('Plan')
 const plan = await agent(`You prepare an approved plan for implementation. Don't implement the parts.
-${A.forceFanOut ? 'The user asked for fan-out explicitly: choose "fan-out" whenever there are at least 2 qualifying parts, whatever their size. Write the scope line anyway.
-' : ''}
+${A.forceFanOut ? 'The user asked for fan-out explicitly: choose "fan-out" whenever there are at least 2 qualifying parts, whatever their size. Write the scope line anyway.\n' : ''}
 Plan: ${A.plan}
 Checks: ${A.checks}
 
