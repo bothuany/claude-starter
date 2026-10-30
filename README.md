@@ -6,15 +6,16 @@
 </p>
 
 <p align="center">
-  <a href="plugins/starter/.claude-plugin/plugin.json"><img src="https://img.shields.io/badge/version-0.5.1-111111?style=flat-square" alt="version 0.5.1"></a>
+  <a href="plugins/starter/.claude-plugin/plugin.json"><img src="https://img.shields.io/badge/version-0.6.0-111111?style=flat-square" alt="version 0.6.0"></a>
   <a href="https://code.claude.com"><img src="https://img.shields.io/badge/Claude%20Code-plugin-d97757?style=flat-square" alt="Claude Code plugin"></a>
   <a href="test/scripts.test.mjs"><img src="https://img.shields.io/badge/tests-28%20passing-2ea44f?style=flat-square" alt="28 tests passing"></a>
-  <img src="https://img.shields.io/badge/always--on-~750%20tokens-111111?style=flat-square" alt="about 750 always-on tokens">
+  <img src="https://img.shields.io/badge/always--on-~650%20tokens-111111?style=flat-square" alt="about 650 always-on tokens">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111?style=flat-square" alt="MIT license"></a>
 </p>
 
 <p align="center">
   <strong>Sonnet ran the review rule in 4 of 12 SWE sessions · with the review gate: 6 of 6 sessions over the threshold</strong><br>
+  <strong>Fan-out moved into a workflow: the Opus main session's share fell from $1.02–1.50 to $0.21–0.25 on a large plan</strong><br>
   <strong>16 real bugs caught and fixed by the fan-out review across 3 runs · each one reproduced first</strong><br>
   <sub>Harbor runs on Claude Code 2.1.312, small samples, hidden tests. Read every number as a direction. <a href="#the-numbers">Details</a>.</sub>
 </p>
@@ -26,7 +27,7 @@ claude plugin install starter@claude-starter      # then, in a session: /starter
 
 ---
 
-Most Claude Code setups add a crowd of "senior engineer" agents and hope for the best. This one is a handful of pieces, each doing something the model doesn't do on its own. The pieces that change how Claude works were measured before they shipped. One that didn't earn its cost was cut. One that cost 2× for nothing on small plans was fenced in. This README tells you which.
+Most Claude Code setups add a crowd of "senior engineer" agents and hope for the best. This one is a handful of pieces, each doing something the model doesn't do on its own. The pieces that change how Claude works were measured before they shipped. One that didn't earn its cost was cut. One that cost 1.6× for nothing on a small plan was fenced in, and one measurement mistake is called out below. This README tells you which.
 
 ## The numbers
 
@@ -38,9 +39,15 @@ Measured with the Harbor benchmark harness on Claude Code 2.1.312, headless (`cl
 | Opus 5.5 follows the scoped review rule (review when over the threshold, skip when under) | — | **12/12** decisions correct |
 | Bugs the post-fan-out review confirmed and fixed, each reproduced and given a regression test | — | **16** across 3 runs (5, 5, 6) |
 | Plan conflict found independently by all 3 runs and handed to the user | — | **3/3** |
-| Fan-out on a plan of small parts (about 100–150 lines each) | $1.21, main session read 374k tokens | $2.28–2.50, main session read 976k–1,207k |
+| Fan-out with Sonnet workers on a 4-part plan of small parts (about 100–150 lines each) | one Opus session: $1.19, 271 s | **$1.89** (Opus main $1.23–1.33 + Sonnet workers $0.61–0.64), 311 s |
+| The same plan in one Sonnet session | one Opus session: $1.19 | **$0.46**, 176 s, same 3/3 |
+| A large plan (4 parts of 230–300 lines, 77 hidden tests): Opus main session's share of the cost | earlier fan-out: $1.02–1.50 | **$0.21–0.25** with the workflow, 77/77 in each complete run |
 
-That last row is why fan-out is fenced in: on small parts it cost about **2× the money**, and the main session processed about **2.6× more input**, for the same result. Since 0.3 it only fans out when at least two parts are large; on that same small plan, the current wording kept it in one session 3/3 times.
+All three solved the plan 3/3 (44/44 hidden tests). Fan-out with cheap Sonnet workers still cost about **1.6× one Opus session**. The workers wrote most of the code for about $0.62, but the Opus main session's coordination (contract, briefs, reading diffs, merging one part at a time, re-testing, review) read 1.26–1.41M tokens. That is more than the whole single Opus session cost. So since 0.3, fan-out only runs when at least two parts are large, and on this plan it stayed in one session 3/3 times. The cheapest arm was a plain Sonnet session, at about 40% of Opus's cost.
+
+Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the Opus main session stops paying for it. On the large plan the whole run still cost about the same as an Opus session working alone ($3.07–3.17 vs $2.77–3.26), so the workflow saves main-session context and Opus spend, not total money. See [the evidence](#the-evidence).
+
+> **Correction:** the first published fan-out numbers ($2.28–2.50) had **Opus workers by mistake**. The benchmark harness pinned every subagent to the main model, which overrode the workers' `model: sonnet`. The numbers above come from a rerun with Sonnet workers, verified in each worker's transcript.
 
 ## What's inside
 
@@ -48,8 +55,7 @@ That last row is why fan-out is fenced in: on small parts it cost about **2× th
 |---|---|---|
 | **Working rules** | A block in `~/.claude/CLAUDE.md` (about 500 tokens) | Short rules: ask before assuming, check the docs, route web research, delegate wide searches, fan out only big plans, verify before saying done ([read them](plugins/starter/rules.md)) |
 | **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping |
-| **`fan-out`** | Skill (Claude may pick it) | Runs an approved plan's large, independent parts as parallel Sonnet workers in their own git worktrees, merges them one at a time, then reviews the merged result once and checks it against the plan |
-| **`implementer`** | Subagent (Sonnet, `isolation: worktree`) | One fan-out worker: builds its part inside the files it owns, commits on its own branch, reports in 10 lines |
+| **`fan-out`** | Skill (Claude may pick it) plus the `fan-out-run` workflow | Hands an approved multi-part plan to a workflow that runs outside the main session: a Sonnet planner, then one Sonnet session or parallel Sonnet workers in worktrees, one integrator, one Opus review, one Sonnet verifier |
 | **`clean-worktrees`** | Skill (you run it) | Removes clean, merged worktrees and branches, and never deletes through links into your main checkout |
 | **`setup`** | Skill (you run it) | Installs what a plugin can't ship, showing every change first |
 | **`monthly-review`** | Skill plus a reminder when a review is due (at most once a day) | Runs `/insights`, checks its suggestions against your setup, applies at most two, prunes auto memory |
@@ -77,7 +83,7 @@ New rules take effect in the next session, and new MCP servers after a restart. 
 | Command | What it does |
 |---|---|
 | `/starter:setup` | Show and apply the setup above. `/starter:setup check` only reports the current state |
-| `/starter:fan-out <plan file or parts>` | Fan out an approved plan yourself, skipping the size check |
+| `/starter:fan-out <plan file or parts>` | Hand an approved plan to the workflow yourself; it then fans out whenever there are 2+ independent parts |
 | `/starter:clean-worktrees` | List worktrees and branches, propose what's safe to remove, ask, then remove it. Add `all-merged` to skip the question, or `--into <branch>` to measure "merged" against another branch |
 | `/starter:monthly-review` | Run the monthly review. `off` stops the reminder; `on` brings it back |
 | `CLAUDE_STARTER_REVIEW_GATE=off` | Turn the review gate off from settings (`off`, `0`, `false` or `no`) |
@@ -130,23 +136,24 @@ Finding a bug isn't enough; acting on it matters. On one SWE-bench Pro task (vul
 
 "The examples pass" and "it was like that before" don't count as evidence.
 
-### Fan-out, only when it pays
+### Fan-out, as a workflow
 
-Before deciding, Claude writes a scope line in its reply:
+An approved plan with 3 or more parts goes to `/starter:fan-out`, which hands it to the plugin's `fan-out-run` [workflow](https://code.claude.com/docs/en/workflows). The main session only checks the preconditions, starts it, and reads the result. Everything else runs in workflow agents whose models are fixed by design:
 
-```
-Scope: 4 qualifying parts; estimated non-test lines per part: 140, 120, 150, 110; large parts: 0 -> main session
-```
+| Step | Who | Model |
+|---|---|---|
+| Split the plan, write the scope line, pick **one session** or **fan-out**, commit the shared contract | planner | Sonnet (high effort) |
+| Build: one session, or one worker per part in its own git worktree | workers | Sonnet (effort by part: low, medium, high) |
+| Merge the branches one at a time, check each stayed in its files, run the checks | integrator | Sonnet |
+| `code-review` at high effort on the whole change | reviewer | Opus |
+| Reproduce, fix or dismiss each finding with evidence; build the plan table (item, `file:line`, test) | verifier | Sonnet |
+| Remove merged worktrees and branches with the safe script | cleanup | Haiku |
 
-It fans out only with **3+ independent parts that share no files, at least 2 of them large** (more than about 200 non-test lines, or 3+ non-test files). Typing `/starter:fan-out` yourself skips that decision. When it does fan out:
+The planner fans out only with **3+ independent parts, at least 2 of them large** (more than about 200 non-test lines, 3+ non-test files, or their own reading). Otherwise one Sonnet session builds the plan. Typing `/starter:fan-out` yourself makes it fan out whenever there are 2+ parts. Before starting, Claude checks that workers will branch from your HEAD (`worktree.baseRef: "head"`) and offers to fix that for this project.
 
-1. **You approve the split.** Claude shows a table of parts, the files each owns and the shared contract, and settles open design questions first, because workers can't ask you.
-2. **It checks the preconditions.** It commits the shared contract. If workers would branch from the remote instead of your HEAD (`worktree.baseRef` isn't `"head"`), it stops and offers to fix that for this project.
-3. **Workers build.** Up to 5 Sonnet workers run in parallel worktrees, and the rest queue.
-4. **It merges one part at a time,** reading each diff and running the fast checks after each merge.
-5. **One review at high effort** runs on the merged result. Each finding gets the evidence treatment above.
-6. **It checks the result against the plan** with a table: every plan item, the `file:line` that implements it, and the test that covers it.
-7. **It cleans up** the merged workers' worktrees and branches with the safe cleanup below. It leaves unmerged ones in place, and never pushes or opens a PR unless you ask.
+Why a workflow: the measured cost of the earlier fan-out was the Opus main session coordinating every brief, diff, merge and re-test, not the workers. In a workflow that coordination runs in Sonnet agents and the main context only holds the final result.
+
+**Headless use:** `claude -p` stops background work after 10 minutes of idle waiting, which kills a long workflow. Set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` (for example `3000000`, or `0` for no cap).
 
 ### Cleanup that never deletes through a link
 
@@ -202,7 +209,19 @@ All misses came from one task, where both arms fixed the asked bug but missed a 
 </details>
 
 <details>
-<summary><b>Fan-out vs one session</b>: Opus main session, Sonnet workers, 4-part plan × 3</summary>
+<summary><b>Fan-out vs one session</b>: a 4-part plan of small parts, 44 hidden tests, × 3</summary>
+
+**With Sonnet workers (0.5.1, the intended design):**
+
+| Arm | Success | Cost per trial | Of which | Main-session input | Agent time |
+|---|---|---|---|---|---|
+| One session, Opus | 3/3 | $1.19 (1.16–1.23) | all Opus | 0.54–0.85M | 271 s |
+| Fan-out, Opus main + Sonnet workers | 3/3 | $1.89 (1.84–1.97) | Opus $1.23–1.33, Sonnet $0.61–0.64 | 1.26–1.41M | 311 s |
+| One session, Sonnet | 3/3 | $0.46 (0.36–0.58) | all Sonnet | — | 176 s |
+
+The Sonnet session was run as `opusplan`, but headless runs never enter plan mode, so it ran entirely on Sonnet. Interactive `opusplan`, with Opus planning, isn't measured.
+
+**Earlier runs (0.2.0 and 0.4), whose workers ran on Opus by mistake:**
 
 | Arm (0.2.0) | Success | Cost | Agent time | Peak main context | Main-session input |
 |---|---|---|---|---|---|
@@ -213,9 +232,9 @@ All misses came from one task, where both arms fixed the asked bug but missed a 
 Under 0.4, on the same plan:
 
 - **Plain instruction:** it stayed in one session 3/3, at $1.14–1.16.
-- **Forced with `/starter:fan-out`:** it fanned out 3/3 with 4 workers, at $2.14–2.66.
+- **Forced with `/starter:fan-out`:** it fanned out 3/3 with 4 Opus workers, at $2.14–2.66.
 
-The review after the merge found 5, 5 and 6 bugs, each reproduced and given a regression test:
+The review after that 0.4 merge found 5, 5 and 6 bugs, each reproduced and given a regression test:
 
 - a stack overflow at 200,000 rows;
 - semver prerelease numbers above 2^53 comparing equal;
@@ -223,6 +242,23 @@ The review after the merge found 5, 5 and 6 bugs, each reproduced and given a re
 - inherited object properties read as columns.
 
 It dismissed 1–2 per run with evidence, and handed the same spec conflict to the user in all 3 runs. The hidden-test score didn't move, because the hidden tests don't cover those edges.
+</details>
+
+<details>
+<summary><b>Fan-out as a workflow (0.6)</b>: a large plan, 4 parts of 230–300 non-test lines, 77 hidden tests</summary>
+
+| Arm | Success | Cost per trial | Opus main session | Agent time |
+|---|---|---|---|---|
+| Workflow (planner chose fan-out) | 77/77, 77/77 | $3.07, $3.17 | $0.21–0.25 | about 11 min |
+| Earlier fan-out (Agent tool, merges in the main session) | 3/3 at 77/77 | $3.39–4.03 | $1.02–1.50 | 7–14 min |
+| Opus with the rules, no plugin | 3/3 at 77/77 | $2.77–3.26 | $0.83–0.97 | 6–10 min |
+
+- That last arm isn't a pure single session: without the plugin, Opus spawned Sonnet subagents of its own.
+- In a third workflow trial, Opus didn't start the workflow: it built part of the plan itself and scored 54/77.
+- A first round of workflow runs was cut off by `claude -p`'s 10-minute background wait and is not counted.
+- Pure single-session baselines (no rules, Opus and Sonnet) on this plan were stopped by a usage limit and are still to run.
+
+On the small plan above, the workflow's planner chose one session 3/3: 3/3 correct at $1.33–2.09, most of it the Opus review (about $0.75).
 </details>
 
 <details>
@@ -241,7 +277,9 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 ### Not measured yet
 
 - **Ask-first behaviour interactively.** Headless runs can't ask. In one manual check, with the rules Claude asked 2 questions before coding; without them it coded at once.
-- **Fan-out on a genuinely large plan:** whether it still fans out there, and whether it pays.
+- **Interactive `opusplan`** (Opus plans, Sonnet executes). Headless runs only measured plain Sonnet.
+- **Pure single-session baselines on the large plan** (no rules, Opus and Sonnet), and how often the workflow fails to start when Claude picks fan-out on its own (1 of 3 runs).
+- **Whether the Opus review is worth its share** (about $0.75 a run) against a Sonnet review.
 - **The 0.5.0 evidence rule's effect** on acting on findings.
 - **The review's catch rate** on seeded defects, and `low` vs `medium`.
 
@@ -250,7 +288,7 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 | | Tokens in every session |
 |---|---|
 | Rules in CLAUDE.md | about 500 |
-| What Claude sees of the plugin (`fan-out` and `implementer` descriptions) | about 250 |
+| What Claude sees of the plugin (the `fan-out` description) | about 150 |
 | Hooks (session check, review gate) | 0, until the gate blocks |
 | `setup`, `clean-worktrees`, `monthly-review` | 0 (user-only skills) |
 
@@ -261,14 +299,16 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 - **Few pieces, each one earning its place.** No generic coder, architect or reviewer agents: they add context at every session and little behaviour. A separate reviewer agent was built, tried and dropped. `code-review` already runs in its own forked context, so the wrapper added a layer without a fresher view.
 - **Rules in CLAUDE.md, hooks only where rules fail.** You can read and edit the rules, and their cost is fixed. The review gate exists because one model skipped the rule; nothing else is forced.
 - **Questions come from the main session.** Subagents can't ask you, so open questions are settled before delegating.
-- **Parallel only when it pays.** Coding parallelizes less than research. On small parts fan-out cost 2×, so it's fenced in. The 200-line mark is a guess: only the low end is measured.
+- **Parallel only when it pays.** Coding parallelizes less than research. On a small plan, fan-out with Sonnet workers cost 1.6× one Opus session, so the planner builds small plans in one Sonnet session. The 200-line mark is a guess.
+- **Coordination in a workflow, not in the main session.** The cost of the old fan-out was the Opus main session merging and re-testing. A script now holds that loop, and every step has a fixed model: Sonnet builds, Opus only reviews.
 
 ## Limits to know
 
 - **Rules are probabilistic.** That's why the review has a hook. For any other rule you need guaranteed, use a hook in that project.
 - **Claude's own merges count as outside changes.** A merge, pull, reset or rebase moves the gate's base even when Claude ran it. Fan-out reviews its own merges anyway.
 - **Gate cost on big repos.** Each check runs `git add -A` into a private index, so very large untracked files or Git LFS clean filters slow it down. Turn it off with `/starter:setup` or the env setting above.
-- **Worker dependencies.** A worktree is a fresh checkout. Before spawning workers, fan-out decides how they get dependencies: `.worktreeinclude`, `worktree.symlinkDirectories`, a cheap install, or checks that need none.
+- **Worker dependencies.** A worktree is a fresh checkout. Before starting the workflow, Claude decides how workers get dependencies: `.worktreeinclude`, `worktree.symlinkDirectories`, a cheap install, or checks that need none.
+- **Workflows and `claude -p`.** Headless runs stop background work after 10 minutes of idle waiting by default. Set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` for long plans.
 - **`worktree.baseRef: "head"`** also makes `claude --worktree` sessions start from your current HEAD. That's why setup sets it per project.
 
 ## Keep it sharp: the monthly review
@@ -293,8 +333,11 @@ Yes. Skip the rules in setup, turn the gate off, or never type the commands. Eac
 **Does it work with Sonnet?**
 Yes. That's why the gate exists: Opus followed the review rule on its own, while Sonnet needed the nudge.
 
-**Why does fan-out so rarely run?**
-Because on the plans we could measure, it cost 2× for the same result. It's for plans with large parts. If you want it anyway, type `/starter:fan-out`.
+**Why does fan-out so rarely run in parallel?**
+Because on a small plan, parallel workers cost 1.6× one Opus session for the same result. The workflow's planner builds such plans in one Sonnet session and fans out only when several parts are large.
+
+**Isn't Opus planning plus Sonnet workers cheaper than all-Opus?**
+Not when the Opus main session does the coordinating: $1.89 vs $1.19 on the small plan. That's why 0.6 moved coordination into a workflow: on the large plan the Opus main session's share fell to $0.21–0.25. In total, the workflow ran about as expensive as Opus alone ($3.07–3.17 vs $2.77–3.26), because the Opus review and the Sonnet agents' start-up add up. If cost is what you're after, a plain Sonnet session solved the small plan 3/3 for $0.46.
 
 ## Privacy
 
