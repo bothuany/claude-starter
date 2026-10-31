@@ -1,12 +1,12 @@
 ---
 name: fan-out
-description: Carry out an approved multi-part plan through the plugin's fan-out-run workflow, outside the main session. A Sonnet planner splits it; small plans are built by one Sonnet session, large ones by parallel Sonnet workers in git worktrees; then one integrator merges, one Opus review and one Sonnet verifier check it. Use when a plan with 3 or more independent parts has been approved, or when the user asks to fan a plan out.
+description: Carry out an approved multi-part plan through the plugin's fan-out-run workflow, outside the main session. One Sonnet builder carries out most plans itself; large plans go to parallel Sonnet workers in git worktrees and one integrator. One fresh reviewer then runs code-review and settles every finding with evidence. Use when a plan with 3 or more independent parts has been approved, or when the user asks to fan a plan out.
 argument-hint: "[plan file or the plan to carry out]"
 ---
 
-You hand an approved plan to the `fan-out-run` workflow and report what it did. The workflow does the splitting, building, merging, review and cleanup in its own agents, so your context and your model's cost stay out of the coordination. Its models are fixed by design: Sonnet builds, Opus reviews.
+You hand an approved plan to the `fan-out-run` workflow and report what it did. The workflow does the splitting, building, merging, review and cleanup in its own agents, so your context and your model's cost stay out of the coordination. Its models are fixed by design.
 
-Why it is built this way: in our measurements one Sonnet session solved a 4-part plan at about 40% of one Opus session's cost, and earlier fan-out designs cost more than one session because the main session coordinated every merge. Large plans still need measuring.
+Why it is built this way: in our measurements one plain Sonnet session solved both benchmark plans (4 parts of about 100 and about 250 lines) at the lowest cost: 40–46% of a plain Opus session. Parallel workers never beat it on cost or success. Earlier fan-out designs lost most money to the main session coordinating merges, and to each extra agent's start-up.
 
 ## 1. Before you start
 
@@ -29,17 +29,10 @@ Start it with the Workflow tool, `name: "starter:fan-out-run"`, and `args` as a 
 }
 ```
 
-The workflow:
-1. A Sonnet planner splits the plan and writes the scope line. It chooses fan-out only for 3 or more independent parts with at least 2 large ones (more than about 200 non-test lines, 3 or more files, or their own reading), or for 2 or more parts when `forceFanOut` is true. Otherwise it chooses one session. For fan-out it commits the shared contract.
-2. Building happens either in one Sonnet session, or with one Sonnet worker per part in its own worktree, at an effort that matches the part's tier.
-3. For fan-out, one Sonnet integrator merges the branches one at a time, checking that each stayed in its files, and runs the checks.
-4. `code-review` runs at high effort on `base..HEAD` in a fresh context (Opus).
-5. A Sonnet verifier who wrote none of the code goes through each finding:
-   - fixes it only after reproducing it;
-   - dismisses it only with evidence;
-   - reports the rest as unverified;
-   - builds the plan table (item, file:line, test).
-6. The safe script removes the merged worktrees and branches.
+The workflow uses as few agents as the job allows, because each one pays its own start-up:
+1. **Build.** One Sonnet agent splits the plan and writes the scope line. For most plans it builds the whole plan itself and commits. It fans out only for 3 or more independent parts with at least 2 large ones (more than about 200 non-test lines, 3 or more files, or their own reading), or for 2 or more parts when `forceFanOut` is true. Then it commits the shared contract and writes one brief per part.
+2. **Fan out** (large plans only). One Sonnet worker per part, each in its own worktree, at an effort that matches the part's tier. Then one Sonnet integrator merges the branches one at a time, checking that each stayed in its files, runs the checks, and removes the merged worktrees with the safe script.
+3. **Review.** One fresh agent that wrote none of the code runs `code-review` at high effort on `base..HEAD`. For each finding it either fixes it after reproducing it, dismisses it with evidence, or reports it as unverified. It also builds the plan table (item, file:line, test).
 
 If the Workflow tool isn't available in this session, say so and implement the plan in the main session instead.
 
