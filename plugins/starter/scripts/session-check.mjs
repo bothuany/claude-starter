@@ -1,24 +1,23 @@
 // SessionStart: tell the user (not Claude) when something needs their attention. It prints one systemMessage, which
 // the user sees and which costs no context; it never injects instructions.
-//   - the starter's rules are missing or out of date in their CLAUDE.md (every session until fixed, unless the user
-//     chose to skip them in /starter:setup), or its markers there are unbalanced (always: that needs a hand fix)
+//   - an old copy of the starter's rules (from versions before 0.8) still sits in their CLAUDE.md: the plugin now
+//     injects them itself, and holds them back until that copy is gone so they don't load twice
 //   - the monthly review is due: no /insights report in 30 days, or a memory index grew past 150 lines or 20KB
 //     (at most once a day, and never after `/starter:monthly-review off`)
 // The imports are inside the try, so even a broken install stays silent instead of blocking a session.
 try {
   const { existsSync, mkdirSync, readFileSync, writeFileSync } = await import('node:fs')
   const { join } = await import('node:path')
-  const { blockState, rulesSkipped } = await import('./rules-block.mjs')
+  const { oldBlockState } = await import('./rules-block.mjs')
   const { MEMORY_BYTES, MEMORY_LINES, remindersOff, status } = await import('./review.mjs')
 
   const notes = []
   const dataDir = process.env.CLAUDE_PLUGIN_DATA || ''
-  const state = blockState()
-  if (state === 'broken') {
-    notes.push('the claude-starter markers in your CLAUDE.md are unbalanced: run /starter:setup to see how to fix them')
-  } else if (state !== 'current' && !rulesSkipped(dataDir)) {
-    const what = state === 'missing' ? 'are not installed' : 'changed in a plugin update'
-    notes.push(`the working rules ${what}: run /starter:setup to review and apply them (or skip them there)`)
+  const old = oldBlockState()
+  if (old === 'present') {
+    notes.push('the working rules now come from the plugin itself; run /starter:setup to remove the old copy from your CLAUDE.md (until then the plugin holds its own copy back)')
+  } else if (old === 'broken') {
+    notes.push('your CLAUDE.md has unbalanced claude-starter markers from an old version: delete that block by hand (run /starter:setup to see where)')
   }
 
   if (dataDir && !remindersOff(dataDir)) {

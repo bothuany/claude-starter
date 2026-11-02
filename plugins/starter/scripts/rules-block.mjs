@@ -1,5 +1,6 @@
-// The starter's rules as a marked block in the user's CLAUDE.md, shared by setup.mjs and session-check.mjs.
-import { createHash } from 'node:crypto'
+// The starter's rules. The plugin's SessionStart hook (rules-hook.mjs) puts them into each session's context, so
+// nothing is written to the user's CLAUDE.md. Versions before 0.8 copied them into CLAUDE.md between markers; this
+// module also finds and removes that old copy, so the rules don't load twice.
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -11,19 +12,17 @@ export const claudeMd = join(configDir, 'CLAUDE.md')
 export const BEGIN = '<!-- claude-starter:begin'
 export const END = '<!-- claude-starter:end -->'
 
-export function rulesBlock() {
-  // LF only, so the hash is the same whether git checked rules.md out with CRLF or LF.
-  const rules = readFileSync(join(pluginRoot, 'rules.md'), 'utf8').replace(/\r\n/g, '\n').trim()
-  const hash = createHash('sha256').update(rules).digest('hex').slice(0, 8)
-  return { hash, text: `${BEGIN} ${hash} -->\n${rules}\n${END}` }
+export function rulesText() {
+  return readFileSync(join(pluginRoot, 'rules.md'), 'utf8').replace(/\r\n/g, '\n').trim()
 }
 
-// True when the user declined the rules in /starter:setup (a flag in the plugin's data dir).
-export function rulesSkipped(dataDir) {
-  return Boolean(dataDir) && existsSync(join(dataDir, 'rules-skipped'))
+// True when the user turned the rules off in /starter:setup (a flag in the plugin's data dir). `rules-skipped` is the
+// flag older versions wrote when the user declined the rules.
+export function rulesOff(dataDir) {
+  return Boolean(dataDir) && ['rules-off', 'rules-skipped'].some(name => existsSync(join(dataDir, name)))
 }
 
-// Where the block sits in text: { start, end } (end is past the end marker), null when there are no markers, or
+// Where the old block sits in text: { start, end } (end is past the end marker), null when there are no markers, or
 // 'broken' when they aren't exactly one begin followed by one end. A broken block is never rewritten: guessing
 // where it ends could delete the user's own text.
 export function findBlock(text) {
@@ -40,16 +39,11 @@ export function findBlock(text) {
   return { start, end: end + END.length }
 }
 
-// 'missing', 'broken', 'outdated' or 'current', from the markers and the hash in the begin marker.
-export function blockState() {
+// 'none', 'present' or 'broken': the old copy of the rules in the user's CLAUDE.md.
+export function oldBlockState() {
   if (!existsSync(claudeMd)) {
-    return 'missing'
+    return 'none'
   }
-  const text = readFileSync(claudeMd, 'utf8')
-  const block = findBlock(text)
-  if (block === null || block === 'broken') {
-    return block ?? 'missing'
-  }
-  const match = text.slice(block.start).match(/^<!-- claude-starter:begin (\w+) -->/)
-  return match?.[1] === rulesBlock().hash ? 'current' : 'outdated'
+  const block = findBlock(readFileSync(claudeMd, 'utf8'))
+  return block === null ? 'none' : block === 'broken' ? 'broken' : 'present'
 }

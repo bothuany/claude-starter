@@ -72,6 +72,16 @@ test('remove unlinks links first and leaves their targets alone', () => {
   assert.equal(readFileSync(join(repo, 'shared', 'canary.txt'), 'utf8'), 'keep')
 })
 
+test('a link named .git below the worktree root is unlinked, not followed', () => {
+  const { repo, wt } = repoWithWorktree()
+  mkdirSync(join(repo, 'shared'))
+  writeFileSync(join(repo, 'shared', 'canary.txt'), 'keep')
+  mkdirSync(join(wt, 'vendor'))
+  link(join(repo, 'shared'), join(wt, 'vendor', '.git'))
+  worktrees(repo, 'remove', '--include-ignored', wt)
+  assert.equal(readFileSync(join(repo, 'shared', 'canary.txt'), 'utf8'), 'keep')
+})
+
 test('remove keeps a detached worktree whose commits are on no branch', () => {
   const { repo, root } = repoWithWorktree()
   const wt = join(root, 'detached')
@@ -197,43 +207,50 @@ function configDir() {
   const dir = mkdtempSync(join(tmpdir(), 'starter-config-'))
   return { dir, env: { CLAUDE_CONFIG_DIR: dir, CLAUDE_PLUGIN_DATA: join(dir, 'data') } }
 }
-const begins = text => text.split('<!-- claude-starter:begin').length - 1
 
-test('setup writes the rules once, keeps CRLF and never overwrites a backup', () => {
+const rulesHook = (dir, env) => {
+  const out = run('rules-hook.mjs', [], dir, env).out
+  return out ? JSON.parse(out).hookSpecificOutput : null
+}
+
+test('the rules hook injects rules.md into the session, and nothing when the rules are off', () => {
   const { dir, env } = configDir()
-  writeFileSync(join(dir, 'CLAUDE.md'), 'mine\r\nline2\r\n')
-  run('setup.mjs', ['apply', '--rules'], dir, env)
-  const first = readFileSync(join(dir, 'CLAUDE.md'), 'utf8')
-  assert.equal(run('setup.mjs', ['apply', '--rules'], dir, env).out, 'nothing to change')
-  assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), first)
-  assert.equal(begins(first), 1)
-  assert.ok(!/[^\r]\n/.test(first))
-  // Stale block: rewritten in place, and a second, separate backup appears.
-  writeFileSync(join(dir, 'CLAUDE.md'), first.replace(/begin \w+/, 'begin 00000000'))
-  run('setup.mjs', ['apply', '--rules'], dir, env)
-  assert.equal(readdirSync(dir).filter(name => name.endsWith('.starter-backup')).length, 2)
+  const injected = rulesHook(dir, env)
+  assert.equal(injected.hookEventName, 'SessionStart')
+  assert.match(injected.additionalContext, /^## Working rules \(claude-starter\)/)
+  run('setup.mjs', ['apply', '--rules', 'off', '--data', env.CLAUDE_PLUGIN_DATA], dir, env)
+  assert.equal(rulesHook(dir, env), null)
+  run('setup.mjs', ['apply', '--rules', 'on', '--data', env.CLAUDE_PLUGIN_DATA], dir, env)
+  assert.ok(rulesHook(dir, env))
+  // Declining the rules in an older version counts as off.
+  writeFileSync(join(env.CLAUDE_PLUGIN_DATA, 'rules-skipped'), '')
+  assert.equal(rulesHook(dir, env), null)
 })
 
-test('setup refuses unbalanced markers and leaves the file alone', () => {
+test('an old rules block in CLAUDE.md holds the hook back until setup removes it, with a backup', () => {
+  const { dir, env } = configDir()
+  const old = 'mine\r\n\r\n<!-- claude-starter:begin deadbeef -->\r\nold rules\r\n<!-- claude-starter:end -->\r\n\r\nafter\r\n'
+  writeFileSync(join(dir, 'CLAUDE.md'), old)
+  assert.equal(rulesHook(dir, env), null)
+  assert.match(run('session-check.mjs', [], dir, env).out, /remove the old copy/)
+  assert.match(run('setup.mjs', ['apply', '--rules', 'off', '--data', env.CLAUDE_PLUGIN_DATA], dir, env).out, /old copy of the rules .* still loads/)
+  run('setup.mjs', ['apply', '--rules', 'on', '--data', env.CLAUDE_PLUGIN_DATA], dir, env)
+  assert.match(run('setup.mjs', ['apply', '--remove-old-rules'], dir, env).out, /old rules block removed/)
+  assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), 'mine\r\n\r\nafter\r\n')
+  assert.equal(readdirSync(dir).filter(name => name.endsWith('.starter-backup')).length, 1)
+  assert.ok(rulesHook(dir, env))
+  assert.equal(run('setup.mjs', ['apply', '--remove-old-rules'], dir, env).out, 'nothing to change')
+})
+
+test('setup leaves unbalanced old markers alone and says so', () => {
   const { dir, env } = configDir()
   for (const text of ['mine\n<!-- claude-starter:begin deadbeef -->\nold\nUSER NOTE\n', '<!-- claude-starter:end -->\nmine\n']) {
     writeFileSync(join(dir, 'CLAUDE.md'), text)
-    assert.match(run('setup.mjs', ['apply', '--rules'], dir, env).out, /rules not written/)
+    assert.match(run('setup.mjs', ['apply', '--remove-old-rules'], dir, env).out, /old rules not removed/)
     assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), text)
-    assert.match(run('session-check.mjs', [], dir, env).out, /markers .* are unbalanced/)
+    assert.match(run('session-check.mjs', [], dir, env).out, /unbalanced claude-starter markers/)
+    assert.equal(rulesHook(dir, env), null)
   }
-})
-
-test('skipped rules keep the session-start notice quiet until applied', () => {
-  const { dir, env } = configDir()
-  // A fresh report, so only the rules notice could show.
-  mkdirSync(join(dir, 'usage-data'))
-  writeFileSync(join(dir, 'usage-data', 'report.html'), '<p>x</p>')
-  assert.match(run('session-check.mjs', [], dir, env).out, /not installed/)
-  run('setup.mjs', ['apply', '--skip-rules', '--data', env.CLAUDE_PLUGIN_DATA], dir, env)
-  assert.equal(run('session-check.mjs', [], dir, env).out, '')
-  run('setup.mjs', ['apply', '--rules', '--data', env.CLAUDE_PLUGIN_DATA], dir, env)
-  assert.ok(!existsSync(join(env.CLAUDE_PLUGIN_DATA, 'rules-skipped')))
 })
 
 test('review counts memory lines as Claude Code loads them and decodes the report', () => {
@@ -363,6 +380,67 @@ test('the review gate counts committed changes and more than 50 lines in one fil
   hook('start')
   edit('src/a.js', 'x\n'.repeat(60))
   git(repo, 'commit', '-qam', 'big')
+  assert.equal(hook('stop').decision, 'block')
+})
+
+test('without a start, the review gate takes the current tree as base instead of HEAD', () => {
+  const { repo, hook, edit } = gateRepo()
+  // Another session's work, already in the tree when this session's first Stop runs.
+  writeFileSync(join(repo, 'src', 'other.js'), 'o\n'.repeat(80))
+  edit('src/a.js', 'a\n')
+  assert.equal(hook('stop'), null)
+  edit('src/a.js', 'a\n'.repeat(60))
+  assert.equal(hook('stop').decision, 'block')
+})
+
+test('the review gate ignores lockfiles, build output, pure renames and whitespace', () => {
+  const { repo, hook, edit } = gateRepo()
+  writeFileSync(join(repo, 'src', 'old.js'), 'x\n'.repeat(80))
+  writeFileSync(join(repo, 'src', 'fmt.js'), 'y\n'.repeat(80))
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-qm', 'old')
+  hook('start')
+  edit('package-lock.json', '{}\n'.repeat(200))
+  mkdirSync(join(repo, 'dist'))
+  edit('dist/app.js', 'x\n'.repeat(200))
+  git(repo, 'mv', 'src/old.js', 'src/new.js')
+  edit('src/fmt.js', '  y\n'.repeat(80))
+  assert.equal(hook('stop'), null)
+})
+
+test('the review gate leaves large untracked files out and writes nothing into .git', () => {
+  const { repo, hook, edit } = gateRepo()
+  const objects = () => readdirSync(join(repo, '.git', 'objects')).length
+  const before = objects()
+  hook('start')
+  writeFileSync(join(repo, 'big.bin'), Buffer.alloc(3 * 1024 * 1024, 1))
+  edit('src/a.js', 'a\n'.repeat(60))
+  assert.equal(hook('stop').decision, 'block')
+  assert.equal(objects(), before)
+})
+
+test('the review gate skips large untracked files when the session runs in a subfolder', () => {
+  const { repo, hook, edit } = gateRepo()
+  const cwd = join(repo, 'src')
+  hook('start', { cwd })
+  writeFileSync(join(repo, 'big.csv'), 'x\n'.repeat(1024 * 1024 + 1))
+  edit('src/a.js', 'a\n'.repeat(5))
+  assert.equal(hook('stop', { cwd }), null)
+})
+
+test('the review gate judges a renamed doc by its new name, reads non-ASCII paths, and keeps Contest.java as code', () => {
+  const { repo, hook, edit } = gateRepo()
+  writeFileSync(join(repo, 'src', 'notes.md'), 'n\n'.repeat(40))
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-qm', 'notes')
+  hook('start')
+  git(repo, 'mv', 'src/notes.md', 'src/guide.md')
+  edit('src/guide.md', 'n\n'.repeat(40) + 'more\n'.repeat(60))
+  edit('src/notlar-ş.md', 'x\n'.repeat(100))
+  mkdirSync(join(repo, 'src', 'test'))
+  edit('src/FooTest.java', 'x\n'.repeat(100))
+  assert.equal(hook('stop'), null)
+  edit('src/Contest.java', 'x\n'.repeat(60))
   assert.equal(hook('stop').decision, 'block')
 })
 

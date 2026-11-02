@@ -1,21 +1,22 @@
 #!/usr/bin/env node
-// User-level setup for claude-starter. A plugin can't ship CLAUDE.md or settings, so this script writes them,
-// and only when the /starter:setup skill has shown the plan and the user agreed.
+// User-level setup for claude-starter: the settings and MCP servers a plugin can't ship itself, written only when the
+// /starter:setup skill has shown the plan and the user agreed. The rules need no setup: the plugin's SessionStart
+// hook injects them.
 //
 //   node setup.mjs check [--data <plugin data dir>]   report what is installed, as JSON
-//   node setup.mjs apply [--rules | --skip-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura]
-//                        [--review-gate on|off] [--data <plugin data dir>]
+//   node setup.mjs apply [--rules on|off] [--remove-old-rules] [--base-ref head|fresh [--scope project|user]]
+//                        [--context7] [--obscura] [--review-gate on|off] [--data <plugin data dir>]
 //
-// Everything it writes lives in the Claude config dir (CLAUDE_CONFIG_DIR or ~/.claude), plus a "rules skipped" flag
-// in the plugin's data dir, user-scope MCP servers (context7, obscura) through `claude mcp add`, and, for
-// --base-ref with the default project scope, the current project's .claude/settings.local.json. Files it changes are backed up next to themselves first, with a timestamp, so no backup
-// is ever overwritten. The rules go between markers, so re-running replaces them in place and nothing else in the
-// user's CLAUDE.md is touched; markers that are unbalanced or out of order are reported and left alone.
+// It writes flags in the plugin's data dir (rules off, review gate off), user-scope MCP servers (context7, obscura)
+// through `claude mcp add`, worktree.baseRef in the user's settings.json or, with the default project scope, the
+// current project's .claude/settings.local.json, and removes the old marked copy of the rules (versions before 0.8)
+// from the user's CLAUDE.md. Files it changes are backed up next to themselves first, with a timestamp, so no backup
+// is ever overwritten. An old block with unbalanced or out-of-order markers is reported and left alone.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { blockState, claudeMd, configDir, findBlock, rulesBlock, rulesSkipped } from './rules-block.mjs'
+import { claudeMd, configDir, findBlock, oldBlockState, rulesOff } from './rules-block.mjs'
 import { gateOff } from './review-gate.mjs'
 
 const settingsFile = join(configDir, 'settings.json')
@@ -123,8 +124,8 @@ function check(dataDir) {
     configDir,
     project: process.cwd(),
     node: process.version,
-    rules: blockState(),
-    rulesSkipped: rulesSkipped(dataDir),
+    rules: rulesOff(dataDir) ? 'off' : 'on',
+    oldRulesBlock: oldBlockState(),
     worktreeBaseRef: baseRefs(),
     context7Mcp: mcpRegistered('context7'),
     obscuraBinary: findObscura() || null,
@@ -139,32 +140,35 @@ function apply(options) {
   const done = []
   mkdirSync(configDir, { recursive: true })
 
-  if (options.rules) {
+  if (options.removeOldRules) {
     const current = existsSync(claudeMd) ? readFileSync(claudeMd, 'utf8') : ''
     const block = findBlock(current)
     if (block === 'broken') {
-      done.push(`rules not written: ${claudeMd} has unbalanced or out-of-order claude-starter markers. Delete every line from "<!-- claude-starter:begin" to "<!-- claude-starter:end -->" (and any stray marker) by hand, then run setup again.`)
-    } else {
-      // Keep the file's own line endings.
+      done.push(`old rules not removed: ${claudeMd} has unbalanced or out-of-order claude-starter markers. Delete every line from "<!-- claude-starter:begin" to "<!-- claude-starter:end -->" (and any stray marker) by hand.`)
+    } else if (block) {
+      // Drop the block and the blank lines around it, keeping the rest of the file and its line endings as they are.
       const eol = current.includes('\r\n') ? '\r\n' : '\n'
-      const text = rulesBlock().text.replace(/\n/g, eol)
-      const next = block
-        ? current.slice(0, block.start) + text + current.slice(block.end)
-        : current.trimEnd() + (current.trim() ? eol + eol : '') + text + eol
-      if (next !== current) {
-        backup(claudeMd)
-        writeFileSync(claudeMd, next)
-        done.push(`rules written to ${claudeMd}`)
-      }
-      // The rules are in place now, so an earlier skip no longer applies.
-      if (options.dataDir) {
-        rmSync(join(options.dataDir, 'rules-skipped'), { force: true })
-      }
+      const before = current.slice(0, block.start).trimEnd()
+      const after = current.slice(block.end).trimStart()
+      const next = before && after ? before + eol + eol + after : (before || after) && (before || after).trimEnd() + eol
+      backup(claudeMd)
+      writeFileSync(claudeMd, next)
+      done.push(`old rules block removed from ${claudeMd}`)
     }
-  } else if (options.skipRules) {
+  }
+
+  if (options.rules) {
     mkdirSync(options.dataDir, { recursive: true })
-    writeFileSync(join(options.dataDir, 'rules-skipped'), '')
-    done.push('rules skipped: the session-start notice about them stays quiet until you apply them with /starter:setup (unbalanced markers are still reported)')
+    for (const name of ['rules-off', 'rules-skipped']) {
+      rmSync(join(options.dataDir, name), { force: true })
+    }
+    if (options.rules === 'off') {
+      writeFileSync(join(options.dataDir, 'rules-off'), '')
+    }
+    done.push(`rules ${options.rules} (from the next session)`)
+    if (options.rules === 'off' && oldBlockState() !== 'none') {
+      done.push(`note: the old copy of the rules in ${claudeMd} still loads; remove it (--remove-old-rules, or by hand if its markers are broken) to turn them off fully`)
+    }
   }
 
   if (options.baseRef) {
@@ -230,12 +234,13 @@ if (command === 'check') {
     console.error('--base-ref takes head or fresh')
     process.exit(1)
   }
-  if (rest.includes('--rules') && rest.includes('--skip-rules')) {
-    console.error('--rules and --skip-rules exclude each other')
+  const rules = value('--rules')
+  if (rest.includes('--rules') && !['on', 'off'].includes(rules)) {
+    console.error('--rules takes on or off')
     process.exit(1)
   }
-  if (rest.includes('--skip-rules') && !dataDir) {
-    console.error('--skip-rules needs --data <plugin data dir>')
+  if (rules && !dataDir) {
+    console.error('--rules needs --data <plugin data dir>')
     process.exit(1)
   }
   const scope = value('--scope') || 'project'
@@ -252,11 +257,11 @@ if (command === 'check') {
     console.error('--review-gate needs --data <plugin data dir>')
     process.exit(1)
   }
-  const options = { rules: rest.includes('--rules'), skipRules: rest.includes('--skip-rules'), baseRef, scope, context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), reviewGate, dataDir }
+  const options = { rules, removeOldRules: rest.includes('--remove-old-rules'), baseRef, scope, context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), reviewGate, dataDir }
   for (const line of apply(options)) {
     console.log(line)
   }
 } else {
-  console.error('usage: setup.mjs check [--data <dir>] | apply [--rules | --skip-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
+  console.error('usage: setup.mjs check [--data <dir>] | apply [--rules on|off] [--remove-old-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
   process.exit(1)
 }

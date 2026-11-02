@@ -71,18 +71,19 @@ function worktrees() {
   return list
 }
 
-// Every link inside dir, without following any of them.
-function findLinks(dir, found = []) {
+// Every link inside dir, without following any of them. Only the worktree's own .git (at the root) is skipped: a
+// link named .git deeper down is a link like any other, and git would delete through it.
+function findLinks(dir, found = [], root = dir) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)
-    if (entry.name === '.git') {
+    if (entry.name === '.git' && dir === root) {
       continue
     }
     const stat = lstatSync(path)
     if (stat.isSymbolicLink()) {
       found.push(path)
     } else if (stat.isDirectory()) {
-      findLinks(path, found)
+      findLinks(path, found, root)
     }
   }
   return found

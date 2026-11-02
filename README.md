@@ -6,10 +6,10 @@
 </p>
 
 <p align="center">
-  <a href="plugins/starter/.claude-plugin/plugin.json"><img src="https://img.shields.io/badge/version-0.7.0-111111?style=flat-square" alt="version 0.7.0"></a>
+  <a href="plugins/starter/.claude-plugin/plugin.json"><img src="https://img.shields.io/badge/version-0.8.0-111111?style=flat-square" alt="version 0.8.0"></a>
   <a href="https://code.claude.com"><img src="https://img.shields.io/badge/Claude%20Code-plugin-d97757?style=flat-square" alt="Claude Code plugin"></a>
-  <a href="test/scripts.test.mjs"><img src="https://img.shields.io/badge/tests-29%20passing-2ea44f?style=flat-square" alt="29 tests passing"></a>
-  <img src="https://img.shields.io/badge/always--on-~650%20tokens-111111?style=flat-square" alt="about 650 always-on tokens">
+  <a href="test/scripts.test.mjs"><img src="https://img.shields.io/badge/tests-43%20passing-2ea44f?style=flat-square" alt="43 tests passing"></a>
+  <img src="https://img.shields.io/badge/always--on-~750%20tokens-111111?style=flat-square" alt="about 750 always-on tokens">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-111111?style=flat-square" alt="MIT license"></a>
 </p>
 
@@ -22,7 +22,7 @@
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
-claude plugin install starter@claude-starter      # then, in a session: /starter:setup
+claude plugin install starter@claude-starter      # optional, in a session: /starter:setup
 ```
 
 ---
@@ -44,7 +44,7 @@ Measured with the Harbor benchmark harness on Claude Code 2.1.312, headless (`cl
 | A large plan (4 parts of 230–300 lines, 77 hidden tests): Opus main session's share of the cost | earlier fan-out: $1.02–1.50 | **$0.11–0.24** with the 0.7 workflow, 3/3 at 77/77 |
 | The same large plan, whole run | plain Opus $2.00–3.15 · plain Sonnet **$0.89–1.29** | 0.7 workflow $2.61–3.05 (0.6: $3.02–4.12) |
 
-All three solved the plan 3/3 (44/44 hidden tests). Fan-out with cheap Sonnet workers still cost about **1.6× one Opus session**. The workers wrote most of the code for about $0.62, but the Opus main session's coordination (contract, briefs, reading diffs, merging one part at a time, re-testing, review) read 1.26–1.41M tokens. That is more than the whole single Opus session cost. So since 0.3, fan-out only runs when at least two parts are large, and on this plan it stayed in one session 3/3 times. The cheapest arm was a plain Sonnet session, at about 40% of Opus's cost.
+All three solved the plan 3/3 (44/44 hidden tests). Fan-out with cheap Sonnet workers still cost about **1.6× one Opus session**. The workers wrote most of the code for about $0.62, but the Opus main session's coordination (contract, briefs, reading diffs, merging one part at a time, re-testing, review) read 1.26–1.41M tokens. That is more than the whole single Opus session cost. So from 0.3 to 0.7, fan-out only ran when at least two parts were large, and on this plan it stayed in one session 3/3 times. Since 0.8, parallel workers run only for plans too big for one session, and only with your OK. The cheapest arm was a plain Sonnet session, at about 40% of Opus's cost.
 
 Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the Opus main session stops paying for it. 0.7 cut the workflow to as few agents as the job allows (a builder and a reviewer; workers and an integrator only for large plans), which took about 20% off 0.6's cost on the large plan. The whole run still costs a little more than a plain Opus session ($2.80 vs $2.41 on average) and about 2.5× a plain Sonnet session. So the workflow buys a nearly empty Opus main context and a fresh review, not lower total spend. **If cost is all you care about, run the plan in a plain Sonnet session.** See [the evidence](#the-evidence).
 
@@ -54,11 +54,11 @@ Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the O
 
 | Piece | Kind | What it does |
 |---|---|---|
-| **Working rules** | A block in `~/.claude/CLAUDE.md` (about 500 tokens) | Short rules: ask before assuming, check the docs, route web research, delegate wide searches, fan out only big plans, verify before saying done ([read them](plugins/starter/rules.md)) |
+| **Working rules** | `SessionStart` hook, about 600 tokens per session | Short rules: ask before assuming, check the docs, route web research, delegate wide searches, suggest fan-out only with your OK, verify before saying done ([read them](plugins/starter/rules.md)) |
 | **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping |
-| **`fan-out`** | Skill (Claude may pick it) plus the `fan-out-run` workflow | Hands an approved multi-part plan to a workflow that runs outside the main session: one Sonnet builder (or, for large plans, parallel Sonnet workers in worktrees and an integrator), then one fresh Sonnet reviewer |
+| **`fan-out`** | Skill (Claude suggests it, you agree) plus the `fan-out-run` workflow | Hands an approved multi-part plan to a workflow that runs outside the main session on its own branch: one Sonnet builder (or, for very large plans and with your OK, parallel Sonnet workers in worktrees and an integrator), then one fresh Sonnet reviewer |
 | **`clean-worktrees`** | Skill (you run it) | Removes clean, merged worktrees and branches, and never deletes through links into your main checkout |
-| **`setup`** | Skill (you run it) | Installs what a plugin can't ship, showing every change first |
+| **`setup`** | Skill (you run it) | Sets what a plugin can't ship (worktree base, optional add-ons) and turns the rules or the gate off, showing every change first |
 | **`monthly-review`** | Skill plus a reminder when a review is due (at most once a day) | Runs `/insights`, checks its suggestions against your setup, applies at most two, prunes auto memory |
 
 ## Quick start
@@ -70,21 +70,21 @@ claude plugin marketplace add bothuany/claude-starter
 claude plugin install starter@claude-starter
 ```
 
-Then, in a session, run `/starter:setup`. It shows each change and asks before making it:
+The rules and the review gate work from the next session; nothing is written to your CLAUDE.md. Optionally, run `/starter:setup` in a session. It shows each change and asks before making it:
 
-- **Rules:** written into `~/.claude/CLAUDE.md` between markers, with a timestamped backup. Nothing else in the file changes. Skip them, and setup remembers.
-- **`worktree.baseRef: "head"`:** set for the project you fan out in, so workers see the contract commit.
+- **Old rules block:** versions before 0.8 copied the rules into `~/.claude/CLAUDE.md`. Setup removes that copy (with a timestamped backup); until then the plugin holds its own copy back, so the rules never load twice.
+- **`worktree.baseRef: "head"`:** set for the project you fan out in, so parallel workers see the contract commit.
 - **Optional add-ons** (all off unless you say yes): context7, obscura, i-have-adhd and ponytail. See [below](#optional-add-ons).
-- **The review gate:** on by default; turn it off here if you prefer.
+- **The rules and the review gate:** both on by default; turn either off here if you prefer.
 
-New rules take effect in the next session, and new MCP servers after a restart. After a plugin update that changes the rules, a one-line notice tells you to run setup again.
+New MCP servers show up after a restart.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `/starter:setup` | Show and apply the setup above. `/starter:setup check` only reports the current state |
-| `/starter:fan-out <plan file or parts>` | Hand an approved plan to the workflow yourself; it then fans out whenever there are 2+ independent parts |
+| `/starter:fan-out <plan file or parts>` | Hand an approved plan to the workflow yourself. For a very large plan it asks, with a cost estimate, whether to use parallel workers |
 | `/starter:clean-worktrees` | List worktrees and branches, propose what's safe to remove, ask, then remove it. Add `all-merged` to skip the question, or `--into <branch>` to measure "merged" against another branch |
 | `/starter:monthly-review` | Run the monthly review. `off` stops the reminder; `on` brings it back |
 | `CLAUDE_STARTER_REVIEW_GATE=off` | Turn the review gate off from settings (`off`, `0`, `false` or `no`) |
@@ -102,7 +102,7 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 - **Ask before assuming.** If a request is ambiguous in a way that changes the result, ask, at most 4 questions with a recommended option first. Don't ask what you can look up.
 - **Check the docs, not memory.** Look up a third-party API before writing against it (context7, or the official docs), and say which version you checked.
 - **Web research.** Use obscura first when it's connected; fall back to WebSearch and WebFetch, and say so.
-- **Delegate wide searches** to a subagent that returns conclusions, not file dumps. Fan out only big plans. Read a worker's diff; don't trust its summary.
+- **Delegate wide searches** to a subagent that returns conclusions, not file dumps. Suggest fan-out for big approved plans, and start it only when you agree. Read a worker's diff; don't trust its summary.
 - **Verify before you say done.** Run the project's tests, type check and lint, and report failures word for word. Call `code-review` for larger changes and handle every finding with evidence. Say plainly what wasn't verified.
 
 ### Review that runs when it matters, and findings that need evidence
@@ -119,15 +119,17 @@ flowchart LR
     E --> B
 ```
 
-- **When it fires:** 2+ non-test files with 15+ changed lines in total, or more than 50 non-test lines, since the last review. Committed changes count too.
+- **When it fires:** 2+ code files with 15+ changed lines in total, or more than 50 changed code lines, since the last review. Committed changes count too.
 - **What doesn't count:**
-  - tests (`test/`, `tests/`, `__tests__/`, `spec/`, `testdata/`, `fixtures/`, `*.test.*`, `*.spec.*`, `*_test.go`, `test_*.py`);
+  - tests (`test/`, `tests/`, `__tests__/`, `spec/`, `testdata/`, `fixtures/`, `e2e/`, `*.test.*`, `*.spec.*`, `*_test.*`, `test_*.py`, `conftest.py`, `*Test.java` and similar);
   - docs (`docs/`, `.md`, `.rst`, `.txt` and similar);
+  - lockfiles and build output (`package-lock.json`, `*.lock`, `go.sum`, `dist/`, `build/`, `*.min.*`, snapshots);
+  - pure renames and whitespace-only changes;
   - anything under `.claude/`.
 - **What counts as a review:** Claude calling `code-review`, or you typing `/code-review`. Other review commands, such as `/ponytail-review`, don't.
 - **It asks once per change set.** After a review, or a one-line answer such as "docs only" or "not my change", the base moves forward, so follow-up fixes don't trigger another round.
-- **It ignores what isn't the session's work:** pulls, merges, resets, checkouts to another commit, and turns with no file-changing tool call. Creating a branch doesn't count, so Claude's own work is still asked about after it branches.
-- **It costs little and fails silent.** It adds no context unless it blocks, it keeps its own git index and never touches yours, and any error lets Claude stop.
+- **It ignores what isn't the session's work:** pulls, merges, resets, checkouts to another commit, turns with no file-changing tool call, and whatever was already in the tree when it first saw the session. Creating a branch doesn't count, so Claude's own work is still asked about after it branches.
+- **It costs little and fails silent.** It adds no context unless it blocks, it keeps its own git index and object store and never writes into your `.git`, it skips untracked files over 2MB, and any error lets Claude stop.
 
 Finding a bug isn't enough; acting on it matters. On one SWE-bench Pro task (vuls), all 8 earlier failures broke on the same filename-parsing edge case. Replayed offline, `code-review` named that exact case in **4 of 8** diffs. Under the gate, one run fixed it and passed, the first pass in 9 trials. In the next run, the review named the bug word for word, and the agent dismissed it because "the cases in the task ... parse correctly". Since 0.5.0, every finding gets one of three outcomes (a wording change; its effect isn't measured yet):
 
@@ -139,16 +141,16 @@ Finding a bug isn't enough; acting on it matters. On one SWE-bench Pro task (vul
 
 ### Fan-out, as a workflow
 
-An approved plan with 3 or more parts goes to `/starter:fan-out`, which hands it to the plugin's `fan-out-run` [workflow](https://code.claude.com/docs/en/workflows). The main session only checks the preconditions, starts it, and reads the result. Everything else runs in workflow agents whose models are fixed by design:
+For an approved plan with 3 or more parts, Claude may suggest `/starter:fan-out`; it starts only when you agree, or when you type it. It hands the plan to the plugin's `fan-out-run` [workflow](https://code.claude.com/docs/en/workflows). The main session checks that the tree is clean, creates a `fan-out/<slug>` work branch, starts the workflow, and reads the result. Everything else runs in workflow agents whose models are fixed by design:
 
 | Step | Who | Model |
 |---|---|---|
-| Split the plan, write the scope line, pick **one session** or **fan-out**; build the whole plan itself, or commit the shared contract and write one brief per part | builder | Sonnet (high effort) |
-| Large plans only: one worker per part in its own git worktree | workers | Sonnet (effort by part: low, medium, high) |
-| Large plans only: merge the branches one at a time, check each stayed in its files, run the checks, remove merged worktrees with the safe script | integrator | Sonnet |
-| `code-review` at high effort on the whole change, then reproduce and fix, dismiss with evidence, or leave unverified each finding; build the plan table (item, `file:line`, test) | reviewer | Sonnet |
+| Build the whole plan with tests; or, with parallel approved, commit the shared contract and write one brief per part | builder | Sonnet (high effort) |
+| Parallel only: one worker per part in its own git worktree | workers | Sonnet (effort by part: low, medium, high) |
+| Parallel only: merge the branches one at a time with fast checks after each merge (an out-of-list file is a warning it judges; a small failure it fixes; otherwise only that merge is rolled back), run the full checks once, remove merged worktrees with the safe script | integrator | Sonnet |
+| `code-review` at high effort on the whole change, then reproduce and fix, dismiss with evidence, or mark needs-decision or not-checked each finding (parts that did not land go to missing, not findings); build the plan table (item, `file:line`, test) | reviewer | Sonnet |
 
-Every workflow agent pays its own start-up (about $0.10–0.25), so most plans run with two agents. The builder fans out only with **3+ independent parts, at least 2 of them large** (more than about 200 non-test lines, 3+ non-test files, or their own reading). Typing `/starter:fan-out` yourself makes it fan out whenever there are 2+ parts. Before starting, Claude checks that workers will branch from your HEAD (`worktree.baseRef: "head"`) and offers to fix that for this project.
+Every workflow agent pays its own start-up (about $0.10–0.25; about 70k tokens of context on a machine with many skills and MCP servers), so most plans run with two agents. Parallel workers are for plans too big for one session: above about 1500 non-test lines, or when the plan clearly won't fit one context. Then Claude asks once, with a cost estimate, before using them. A real 10-part run took about 2.9M tokens and 1 h 50 min, and four of its workers each reached 480–650k tokens of context for one part. Before a parallel run, Claude checks that workers will branch from your HEAD (`worktree.baseRef: "head"`) and offers to fix that for this project. A build whose checks failed, or that committed nothing, isn't reviewed.
 
 Why a workflow: the measured cost of the earlier fan-out was the Opus main session coordinating every brief, diff, merge and re-test, not the workers. In a workflow that coordination runs in Sonnet agents and the main context only holds the final result.
 
@@ -170,12 +172,12 @@ Worktrees often hold symlinks, or NTFS junctions on Windows, into the main check
 
 ## What you'll see at session start
 
-The starter never adds context at session start. When something needs you, it shows one line that only you see:
+At session start the starter adds only its rules to the context. When something needs you, it shows one line that only you see:
 
 | Notice | Why | What to do |
 |---|---|---|
-| `the working rules are not installed` / `changed in a plugin update` | The rules block is missing, or a newer version is out | Run `/starter:setup`, or skip the rules there to silence this |
-| `the claude-starter markers in your CLAUDE.md are unbalanced` | A begin or end marker was edited away | Delete the old block by hand; setup won't guess where it ends |
+| `the working rules now come from the plugin itself` | An old copy of the rules (before 0.8) is still in your CLAUDE.md | Run `/starter:setup` to remove it |
+| `unbalanced claude-starter markers` | An old block's begin or end marker was edited away | Delete the old block by hand; setup won't guess where it ends |
 | `monthly review due` | Your newest `/insights` report is 30+ days old, or a memory index passed 150 lines or 20KB | Run `/starter:monthly-review`, or `off` to stop it. It shows at most once a day |
 
 ## Optional add-ons
@@ -288,26 +290,26 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 
 | | Tokens in every session |
 |---|---|
-| Rules in CLAUDE.md | about 500 |
+| Rules, injected at session start | about 600 |
 | What Claude sees of the plugin (the `fan-out` description) | about 150 |
-| Hooks (session check, review gate) | 0, until the gate blocks |
+| Other hooks (session check, review gate) | 0, until the gate blocks |
 | `setup`, `clean-worktrees`, `monthly-review` | 0 (user-only skills) |
 
-`claude plugin details starter` reports about 540 always-on tokens, but that also counts the three user-only skills, whose descriptions don't load. Add-ons bring their own: context7's tool schemas load on demand, and i-have-adhd and ponytail add their instructions to every session.
+`claude plugin details starter` doesn't count the hook-injected rules, and it does count the three user-only skills, whose descriptions don't load. Add-ons bring their own: context7's tool schemas load on demand, and i-have-adhd and ponytail add their instructions to every session.
 
 ## Design choices
 
 - **Few pieces, each one earning its place.** No generic coder, architect or reviewer agents: they add context at every session and little behaviour. A separate reviewer agent was built, tried and dropped. `code-review` already runs in its own forked context, so the wrapper added a layer without a fresher view.
-- **Rules in CLAUDE.md, hooks only where rules fail.** You can read and edit the rules, and their cost is fixed. The review gate exists because one model skipped the rule; nothing else is forced.
+- **Rules from the plugin, hooks only where rules fail.** The rules arrive with the plugin and leave with it, and their cost is fixed. The review gate exists because one model skipped the rule; nothing else is forced.
 - **Questions come from the main session.** Subagents can't ask you, so open questions are settled before delegating.
-- **Parallel only when it pays.** Coding parallelizes less than research. On a small plan, fan-out with Sonnet workers cost 1.6× one Opus session, so the workflow's builder does small plans itself in one Sonnet session. The 200-line mark is a guess.
+- **Parallel only when it pays.** Coding parallelizes less than research. On a small plan, fan-out with Sonnet workers cost 1.6× one Opus session, so the workflow's builder does most plans itself in one Sonnet session, and parallel workers need your OK. The 1500-line mark is a guess.
 - **Coordination in a workflow, not in the main session.** The cost of the old fan-out was the Opus main session merging and re-testing. A script now holds that loop with as few agents as the job allows, each with a fixed model: Sonnet builds and reviews, and the main session only reads the result.
 
 ## Limits to know
 
 - **Rules are probabilistic.** That's why the review has a hook. For any other rule you need guaranteed, use a hook in that project.
 - **Claude's own merges count as outside changes.** A merge, pull, reset or rebase moves the gate's base even when Claude ran it. Fan-out reviews its own merges anyway.
-- **Gate cost on big repos.** Each check runs `git add -A` into a private index, so very large untracked files or Git LFS clean filters slow it down. Turn it off with `/starter:setup` or the env setting above.
+- **Gate cost on big repos.** Each check runs `git add -A` into a private index and object store, skipping untracked files over 2MB, so many untracked files or Git LFS clean filters still slow it down. Turn it off with `/starter:setup` or the env setting above.
 - **Worker dependencies.** A worktree is a fresh checkout. Before starting the workflow, Claude decides how workers get dependencies: `.worktreeinclude`, `worktree.symlinkDirectories`, a cheap install, or checks that need none.
 - **Workflows and `claude -p`.** Headless runs stop background work after 10 minutes of idle waiting by default. Set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` for long plans.
 - **`worktree.baseRef: "head"`** also makes `claude --worktree` sessions start from your current HEAD. That's why setup sets it per project.
@@ -326,16 +328,16 @@ Claude Code deletes `/insights` reports after `cleanupPeriodDays` (30 by default
 ## FAQ
 
 **Will it slow me down?**
-Small changes: no. Below the threshold the review isn't asked for, and the hooks add no context. Larger changes get one review, which cost about +29% on our SWE runs.
+Small changes: no. Below the threshold the review isn't asked for, and apart from the rules the hooks add no context. Larger changes get one review, which cost about +29% on our SWE runs.
 
 **Can I use only part of it?**
-Yes. Skip the rules in setup, turn the gate off, or never type the commands. Each piece works on its own.
+Yes. Turn the rules or the gate off in setup, or never type the commands. Each piece works on its own.
 
 **Does it work with Sonnet?**
 Yes. That's why the gate exists: Opus followed the review rule on its own, while Sonnet needed the nudge.
 
 **Why does fan-out so rarely run in parallel?**
-Because on a small plan, parallel workers cost 1.6× one Opus session for the same result. The workflow's builder does such plans itself in one Sonnet session and fans out only when several parts are large.
+Because on a small plan, parallel workers cost 1.6× one Opus session for the same result. The workflow's builder does most plans itself in one Sonnet session; parallel workers run only for plans too big for one context, and only after you approve the estimated cost.
 
 **Isn't Opus planning plus Sonnet workers cheaper than all-Opus?**
 Not when the Opus main session does the coordinating: $1.89 vs $1.19 on the small plan. That's why 0.6 moved coordination into a workflow: on the large plan the Opus main session's share fell to $0.11–0.24. In total, the 0.7 workflow still ran a little above plain Opus ($2.80 vs $2.41 on average), because every agent's start-up and the review add up. If cost is what you're after, a plain Sonnet session solved both plans 3/3: $0.46 for the small one, $1.11 for the large one.
@@ -355,7 +357,7 @@ claude plugin uninstall starter@claude-starter
 
 Then undo what setup wrote, if you want it gone. If you use `CLAUDE_CONFIG_DIR`, read that folder for `~/.claude` below.
 
-- Delete the block between `claude-starter:begin` and `claude-starter:end` in `~/.claude/CLAUDE.md`.
+- If you used a version before 0.8 and never ran setup since, delete the block between `claude-starter:begin` and `claude-starter:end` in `~/.claude/CLAUDE.md`.
 - Remove `worktree.baseRef` from the project's `.claude/settings.local.json` or from `~/.claude/settings.json`.
 - If setup added them, run `claude mcp remove --scope user obscura` and `claude mcp remove --scope user context7`.
 - If you added them, run `claude plugin uninstall i-have-adhd@claude-starter` and `claude plugin uninstall ponytail@claude-starter`.
@@ -364,10 +366,10 @@ Then undo what setup wrote, if you want it gone. If you use `CLAUDE_CONFIG_DIR`,
 ## Tests
 
 ```bash
-node --test test/scripts.test.mjs
+node --test test/scripts.test.mjs test/workflow.test.mjs
 ```
 
-Runs every script against throwaway repositories and config directories; it never touches your own `~/.claude`.
+The first runs every script against throwaway repositories and config directories; it never touches your own `~/.claude`. The second runs the fan-out workflow's control flow with stub agents.
 
 ## Pairs well with
 
