@@ -1,0 +1,31 @@
+plugins/starter/rules.md
+  s_fd78d1118bf5f6::t_069b38e82e85b3 10,12,15
+plugins/starter/scripts/review-gate.mjs
+  s_fd78d1118bf5f6::t_ab88b7440aa39b 260-261
+plugins/starter/skills/fan-out/SKILL.md
+  s_fd78d1118bf5f6::t_8913c217a85cd3 16,41-42,53
+plugins/starter/skills/grill/SKILL.md
+  s_fd78d1118bf5f6::t_d890f7c2e13812 1-18
+plugins/starter/skills/review-setup/SKILL.md
+  s_fd78d1118bf5f6::t_d10f568152c319 1-32
+plugins/starter/workflows/fan-out-run.js
+  s_fd78d1118bf5f6::t_3ba373429f8078 79,113-119,208-210,213,217-219,251-275
+test/workflow.test.mjs
+  s_fd78d1118bf5f6::t_a2174d5f973092 123-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f25554640244fede5556bf0a4b280465a328ee8f",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
