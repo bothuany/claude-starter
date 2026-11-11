@@ -76,7 +76,7 @@ const REVIEW = {
   type: 'object',
   properties: {
     findings: { type: 'array', items: { type: 'object', properties: {
-      summary: { type: 'string' }, outcome: { type: 'string', enum: ['fixed', 'dismissed', 'needs-decision', 'not-checked'] }, evidence: { type: 'string' },
+      summary: { type: 'string' }, outcome: { type: 'string', enum: ['fixed', 'dismissed', 'pre-existing', 'needs-decision', 'not-checked'] }, evidence: { type: 'string' },
     }, required: ['summary', 'outcome', 'evidence'] } },
     planTable: { type: 'array', items: { type: 'object', properties: {
       item: { type: 'string' }, location: { type: 'string' }, test: { type: 'string' },
@@ -109,6 +109,13 @@ if (build.mode === 'fan-out' && !A.parallel) {
 }
 if (build.mode === 'fan-out' && !build.parts.length) {
   return { status: 'stopped', stopped: 'the builder chose fan-out but returned no parts', base: A.base, build }
+}
+if (build.mode === 'fan-out') {
+  // Two parts that declare the same file can't be merged independently. Decided here from the declared lists, not by
+  // an agent: they become one part, so one worker builds them in order and only disjoint parts run in parallel.
+  const declared = build.parts.length
+  build.parts = foldOverlapping(build.parts)
+  if (build.parts.length < declared) log(`${declared - build.parts.length} part(s) shared files with another part and were folded into it: ${build.parts.length} worker(s)`)
 }
 log(build.scope)
 if (build.ciGaps && build.ciGaps.length) log(`CI runs more than the checks: ${build.ciGaps.join('; ')}`)
@@ -198,15 +205,18 @@ Checks: ${A.checks}
 ${integration && integration.fixes.length ? `The integrator committed these fixes itself; check each one:
 ${integration.fixes.map(f => `- part ${f.part}, ${f.commit} (${f.files.join(', ')}): ${f.why}`).join('\n')}
 ` : ''}${dropped.length ? `These parts did not land and are not on this branch. List their plan items in "missing", not as findings:\n${dropped.map(d => `- ${d}`).join('\n')}\n` : ''}
-1. Call the code-review skill with the Skill tool, args \`high ${A.base}..HEAD\`, and wait for its findings.
-2. Give each finding one outcome, with evidence:
+1. If the repository root has a REVIEW.md, read it first: it says what failure looks like here, what is risky and what to skip.
+2. Call the code-review skill with the Skill tool, args \`high ${A.base}..HEAD\`, and wait for its findings.
+3. Give each finding one outcome, with evidence:
    - fixed: first reproduce it with a command or a throwaway test (not committed), then fix it and add a regression test;
    - dismissed: only with evidence that it's wrong (the line you read, or a command you ran and its output);
+   - pre-existing: the bug is in code this change did not touch (name the line); report it, don't fix it;
    - needs-decision: it needs the user's decision (a gap or conflict in the plan);
    - not-checked: checking would take more than a few minutes, or you didn't get to it; say what you would run.
    "The plan's examples pass" and "it was like that before" are not evidence. When in doubt, it's not-checked.
-3. Plan table: every item in the plan, with the file:line that implements it and the name of the test that covers it. An item without both goes in "missing"; don't implement it.
-4. Run the checks, commit your fixes on the current branch as "fan-out: review fixes" (if any), and report. ${LONG_RUNS}`, { label: 'review', phase: 'Review', model: REVIEW_MODEL, schema: REVIEW })
+   When a finding is one instance of a class, find every instance in the change and settle them together.
+4. Plan table: every item in the plan, with the file:line that implements it and the name of the test that covers it. An item without both goes in "missing"; don't implement it.
+5. Run the checks, commit your fixes on the current branch as "fan-out: review fixes" (if any), and report. ${LONG_RUNS}`, { label: 'review', phase: 'Review', model: REVIEW_MODEL, schema: REVIEW })
 }
 
 // done only when the review ran and its final checks pass.
@@ -236,6 +246,31 @@ return {
   dropped,
   finalChecks: review ? { passed: review.checksPassed, output: review.checkOutput } : null,
   unmergedWorktrees: parts.filter(p => p.result && p.result.worktree && !isMerged(p)).map(p => p.result.worktree),
+}
+
+function sameFile(a, b) {
+  const [x, y] = [a, b].map(f => f.replace(/^\.\//, ''))
+  // A trailing slash declares a whole directory.
+  return x === y || (x.endsWith('/') && y.startsWith(x)) || (y.endsWith('/') && x.startsWith(y))
+}
+
+function foldOverlapping(parts) {
+  const TIERS = ['mechanical', 'standard', 'hard']
+  const groups = []
+  for (const p of parts) {
+    const hits = groups.filter(g => g.files.some(f => p.files.some(q => sameFile(f, q))))
+    if (!hits.length) { groups.push({ ...p, files: [...p.files] }); continue }
+    const first = hits[0]
+    for (const g of [...hits.slice(1), p]) {
+      first.goal += `; then: ${g.goal}`
+      first.behaviour += `\n${g.behaviour}`
+      first.done += `; ${g.done}`
+      first.files = [...new Set([...first.files, ...g.files])]
+      if (TIERS.indexOf(g.tier) > TIERS.indexOf(first.tier)) first.tier = g.tier
+    }
+    for (const g of hits.slice(1)) groups.splice(groups.indexOf(g), 1)
+  }
+  return groups
 }
 
 function isBuilt(p) {

@@ -120,3 +120,20 @@ test('parallel with no part merged ends without a review', async () => {
   assert.ok(!run.labels.includes('review'))
   assert.equal(run.result.status, 'not-landed')
 })
+
+test('parallel: parts that declare the same file or directory are folded into one worker', async () => {
+  const parts = [part(1), { ...part(2), files: ['./f1', 'f2'], tier: 'hard' }, part(3), { ...part(4), files: ['src/a/'] }, { ...part(5), files: ['src/a/x.ts', 'f2'] }]
+  const run = await runWorkflow({ ...ARGS, parallel: true }, {
+    build: build({ mode: 'fan-out', contractCommit: 'C0', parts }),
+    'part 1': work(1), 'part 2': work(2),
+    integrate: { merged: [{ part: 1, branch: 'w1', ok: true, note: '' }, { part: 2, branch: 'w2', ok: true, note: '' }], fixes: [], checksPassed: true, checkOutput: '', cleanup: '' },
+    review,
+  })
+  // 1+2 share f1; 4+5 share src/a/; 5 also shares f2 with the 1+2 group, so all four end up in one part. 3 stays alone.
+  assert.deepEqual(run.labels, ['build', 'part 1 (hard)', 'part 2 (standard)', 'integrate', 'review'])
+  assert.match(run.prompt('part 1'), /Goal: g1; then: g2; then: g4; then: g5/)
+  assert.match(run.prompt('part 1'), /Files you own: f1, \.\/f1, f2, src\/a\/, src\/a\/x\.ts/)
+  assert.match(run.prompt('part 2'), /Goal: g3\n/)
+  assert.ok(run.logs.some(line => /3 part\(s\) shared files .* 2 worker\(s\)/.test(line)))
+  assert.equal(run.result.status, 'done')
+})

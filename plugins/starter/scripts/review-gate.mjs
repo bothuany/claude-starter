@@ -257,7 +257,8 @@ function stop(input) {
   console.log(JSON.stringify({
     decision: 'block',
     reason: `claude-starter review gate: since the last review this session changed ${size.files} non-test file(s), ` +
-      `${size.lines} line(s) (${list}). Call the code-review skill with the Skill tool (args \`medium\`). For each ` +
+      `${size.lines} line(s) (${list}). Call the code-review skill with the Skill tool (args: the effort the repository's REVIEW.md gives this ` +
+      `change's risk tier; \`medium\` when there is no REVIEW.md or the tier is unclear). For each ` +
       'finding: reproduce it with a command or a throwaway test, then fix it; dismiss it only with evidence (the ' +
       'line you read, or a command you ran and its output); report it as unverified only if checking would take ' +
       'more than a few minutes or needs the user\'s decision. "The task\'s examples pass" and "it was like that ' +
