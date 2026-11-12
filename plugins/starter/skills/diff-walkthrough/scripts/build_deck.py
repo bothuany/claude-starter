@@ -320,15 +320,15 @@ def panel(heading, body, cls="", kicker=""):
 
 
 def chip(text, tone=""):
-    return f'<span class="chip {tone}">{esc(text)}</span>'
+    return f'<span class="chip {esc(tone)}">{esc(text)}</span>'
 
 
 def section(ctx, scene, inner, beats, extra_cls="", key="show"):
     ctx.sid += 1
     ctx.chapter = scene.get("chapter", ctx.chapter)
-    hold = scene.get("hold", 1.2)
+    hold = float(scene.get("hold", 1.2))
     return (f'<section id="s{ctx.sid}" class="scene {scene["type"]} {extra_cls} {has_classes(beats, key)}" '
-            f'data-say="{say_attr(beats)}" data-hold="{hold}" data-chapter="{esc(ctx.chapter)}">'
+            f'data-say="{say_attr(beats)}" data-hold="{hold:g}" data-chapter="{esc(ctx.chapter)}">'
             f'{inner}</section>\n')
 
 
@@ -344,7 +344,7 @@ def scene_title(ctx, sc):
     verdict = ""
     if sc.get("verdict"):
         v = sc["verdict"]
-        verdict = (f'<div class="verdict {v.get("tone", "warn")} {cls_for("verdict", first, focus)}">'
+        verdict = (f'<div class="verdict {esc(v.get("tone", "warn"))} {cls_for("verdict", first, focus)}">'
                    f'{icon(v.get("icon", "alert"), 22)}<span>{esc(v["text"])}</span></div>')
     inner = (f'<div class="hero"><p class="kicker">{esc(sc.get("kicker", ""))}</p>'
              f'<h1>{esc(sc["title"])}</h1><p class="lede">{esc(sc.get("subtitle", ""))}</p>'
@@ -369,7 +369,7 @@ def soft(text):
 
 def node_box(n):
     cols, rows = 12, 5
-    w, h = n.get("w", 236), n.get("h", 78)
+    w, h = float(n.get("w", 236)), float(n.get("h", 78))
     cx = 30 + (FLOW_W - 60) * (n["col"] + 0.5) / cols
     cy = 34 + (FLOW_H - 68) * (n["row"] + 0.5) / rows
     return cx, cy, w, h
@@ -422,7 +422,7 @@ def scene_flow(ctx, sc):
             d = f"M{sx:.1f} {sy:.1f}L{tx:.1f} {ty:.1f}"
             lx, ly = (sx + tx) / 2, (sy + ty) / 2
         c = cls_for(eid, first, focus, e.get("base", False))
-        tone = e.get("tone", "")
+        tone = esc(e.get("tone", ""))
         dash = " dashed" if e.get("dashed") else ""
         svg.append(f'<g class="edge dimmable {tone}{dash} {c}"><path class="ln" d="{d}" pathLength="1" marker-end="url(#ah{ctx.sid + 1})"/>'
                    f'<circle class="dot" r="4.5" style="offset-path:path(\'{d}\')"/></g>')
@@ -432,7 +432,7 @@ def scene_flow(ctx, sc):
         cx, cy, w, h = node_box(n)
         c = cls_for(n["id"], first, focus, n.get("base", False))
         html_nodes.append(
-            f'<div class="node dimmable {n.get("tone", "")} {c}" style="left:{cx - w / 2:.0f}px;top:{cy - h / 2:.0f}px;width:{w}px;height:{h}px">'
+            f'<div class="node dimmable {esc(n.get("tone", ""))} {c}" style="left:{cx - w / 2:.0f}px;top:{cy - h / 2:.0f}px;width:{w:g}px;height:{h:g}px">'
             f'<span class="nic">{icon(n.get("icon", "box"), 22)}</span><span class="ntx"><b>{soft(n["label"])}</b>'
             f'{"<small>" + soft(n["sub"]) + "</small>" if n.get("sub") else ""}'
             f'{"<code>" + icon("file", 12) + soft(n["code"]) + "</code>" if n.get("code") else ""}</span></div>')
@@ -463,7 +463,7 @@ def scene_sequence(ctx, sc):
         y = 100 + i * step
         x1, x2 = xs[m["from"]], xs[m["to"]]
         c = cls_for(m["id"], first, focus, m.get("base", False))
-        tone = m.get("tone", "")
+        tone = esc(m.get("tone", ""))
         if x1 == x2:  # self call
             d = f"M{x1:.0f} {y - 8:.0f}h46v18h-42"
             lx = x1 + 52
@@ -567,9 +567,9 @@ def scene_compare(ctx, sc):
         body = side_html(ctx, side, beats, f"{key}_marks", 540)
         tag = chip(side.get("tag", ""), side.get("tone", "")) if side.get("tag") else ""
         if side.get("file"):  # real code keeps its window
-            panes.append(window(side.get("label", key), body, chips=tag, cls=f"pane codewin dimmable {side.get('tone', '')} {c}"))
+            panes.append(window(side.get("label", key), body, chips=tag, cls=f"pane codewin dimmable {esc(side.get('tone', ''))} {c}"))
         else:
-            panes.append(f'<div class="pane dimmable {side.get("tone", "")} {c}"><div class="ptitle">{icon(side.get("icon"), 20)}'
+            panes.append(f'<div class="pane dimmable {esc(side.get("tone", ""))} {c}"><div class="ptitle">{icon(side.get("icon"), 20)}'
                          f'{esc(side.get("label", key))}{tag}</div>{body}</div>')
     arrow = f'<div class="cmp-arrow">{icon("bolt", 26)}</div>' if sc.get("arrow", True) else ""
     inner = f'<div class="cmp">{panes[0]}{arrow}{panes[1]}</div>'
@@ -579,12 +579,12 @@ def scene_compare(ctx, sc):
 def scene_cards(ctx, sc):
     beats = beats_of(sc)
     first, focus = appear_focus(beats)
-    cols = sc.get("columns", 3)
+    cols = int(sc.get("columns", 3))
     cards = []
     for it in sc["items"]:
         c = cls_for(it["id"], first, focus, it.get("base", False))
-        tag = f'<span class="ctag {it.get("tone", "")}">{esc(it["tag"])}</span>' if it.get("tag") else ""
-        cards.append(f'<div class="card dimmable {it.get("tone", "")} {c}"><div class="chead"><span class="cic">{icon(it.get("icon", "box"), 22)}</span>'
+        tag = f'<span class="ctag {esc(it.get("tone", ""))}">{esc(it["tag"])}</span>' if it.get("tag") else ""
+        cards.append(f'<div class="card dimmable {esc(it.get("tone", ""))} {c}"><div class="chead"><span class="cic">{icon(it.get("icon", "box"), 22)}</span>'
                      f'<b>{esc(it["title"])}</b>{tag}</div><p>{esc(it.get("body", ""))}</p></div>')
     head = f'<h3 class="ctitle">{esc(sc["heading"])}</h3>' if sc.get("heading") else ""
     inner = f'<div class="cards-wrap">{head}<div class="cards" style="grid-template-columns:repeat({cols},1fr)">{"".join(cards)}</div></div>'
@@ -973,8 +973,8 @@ def scene_state(ctx, sc):
             for ci, v in enumerate(r)) + "</tr>" for ri, r in enumerate(st))
         act = (f'<div class="act">{icon(b.get("icon", "bolt"), 18)}<b>{esc(b.get("action", ""))}</b></div>' if b.get("action") else "")
         code = f'<pre class="stmt">{esc(b["code"])}</pre>' if b.get("code") else ""
-        out = (f'<div class="outcome {b.get("tone", "")}">{esc(b["outcome"])}</div>' if b.get("outcome") else "")
-        past = "".join(f'<li class="{x.get("tone", "")}"><span>{i}</span><b>{esc(x.get("action", ""))}</b><em>{esc(x.get("outcome", ""))}</em></li>'
+        out = (f'<div class="outcome {esc(b.get("tone", ""))}">{esc(b["outcome"])}</div>' if b.get("outcome") else "")
+        past = "".join(f'<li class="{esc(x.get("tone", ""))}"><span>{i}</span><b>{esc(x.get("action", ""))}</b><em>{esc(x.get("outcome", ""))}</em></li>'
                        for i, x in enumerate(beats[: n - 1], start=1) if x.get("action"))
         log = f'<ol class="slog"><small>so far</small>{past}</ol>' if past else ""
         frames.append(f'<div class="sframe sf{n}">{act}{code}<table class="dt"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>{out}{log}</div>')
@@ -1086,7 +1086,8 @@ addEventListener('keydown',e=>{{const k=e.key;
   else if(k==='Home'){{si=0;bi=1;show();}} else if(k==='End'){{si=S.length-1;bi=1;show();}} }});
 const toc=document.body.appendChild(Object.assign(document.createElement('div'),{{className:'toc'}}));
 const chapters=[];S.forEach((s,i)=>{{const c=s.dataset.chapter||'';if(!chapters.length||chapters[chapters.length-1].c!==c)chapters.push({{c,i}});}});
-toc.innerHTML='<b>Chapters</b>'+chapters.map((x,j)=>`<a data-i="${{x.i}}"><em>${{String(j+1).padStart(2,'0')}}</em>${{x.c}}</a>`).join('')+'<small>T to close · click a chapter</small>';
+const el=(t,txt)=>Object.assign(document.createElement(t),{{textContent:txt}});
+toc.append(el('b','Chapters'),...chapters.map((x,j)=>{{const a=el('a',x.c);a.dataset.i=x.i;a.prepend(el('em',String(j+1).padStart(2,'0')));return a;}}),el('small','T to close · click a chapter'));
 toc.addEventListener('click',e=>{{const a=e.target.closest('a');if(a){{si=+a.dataset.i;bi=1;show();}}toc.classList.remove('open');e.stopPropagation();}});
 addEventListener('keydown',e=>{{if(e.key==='t'||e.key==='T')toc.classList.toggle('open');}});
 addEventListener('click',e=>{{ if(toc.classList.contains('open')) return; if(e.clientX<innerWidth/3) go(-1); else go(1); }});

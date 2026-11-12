@@ -272,7 +272,7 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 
 ## Design choices
 
-- **Few pieces, each one earning its place.** No generic coder, architect or reviewer agents: they add context at every session and little behaviour. A separate reviewer agent was built, tried and dropped. `code-review` already runs in its own forked context, so the wrapper added a layer without a fresher view.
+- **Few pieces, each one earning its place.** There are four role agents (`locator`, `reader`, `writer`, `reviewer`), because a role pins model and effort and the type of a task is readable from its brief. There are still no generic "senior engineer" personas: they add context at every session and little behaviour.
 - **Rules from the plugin, hooks only where rules fail.** The rules arrive with the plugin and leave with it, and their cost is fixed. The review gate exists because one model skipped the rule; nothing else is forced.
 - **Questions come from the main session.** Subagents can't ask you, so open questions are settled before delegating.
 - **Parallel only when it pays.** Coding parallelizes less than research. On a small plan, fan-out with Sonnet workers cost 1.6× one Opus session, so the workflow's builder does most plans itself in one Sonnet session, and parallel workers need your OK. The 1500-line mark is a guess.

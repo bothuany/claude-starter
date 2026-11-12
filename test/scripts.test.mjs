@@ -328,7 +328,7 @@ function gateRepo() {
     call('Write', { file_path: file })
   }
   const review = () => call('Skill', { skill: 'code-review', args: 'medium' })
-  return { root, repo, env, hook, edit, review }
+  return { root, repo, env, hook, edit, review, call }
 }
 
 test('the review gate lets small changes, tests, docs and one-line wiring through', () => {
@@ -360,6 +360,34 @@ test('the review gate asks once per change set; a review or an answer moves the 
   assert.equal(hook('stop'), null)
   edit('src/c.js', 'c\n'.repeat(61))
   assert.equal(hook('stop'), null)
+})
+
+test('the review gate counts files a subagent changed, and a review by the reviewer subagent', () => {
+  const delegated = () => {
+    const gate = gateRepo()
+    gate.hook('start')
+    // The lead's only tool call is the Agent call; the writer's own edits are not in the lead's transcript.
+    writeFileSync(join(gate.repo, 'src', 'a.js'), 'a\n'.repeat(10))
+    writeFileSync(join(gate.repo, 'src', 'b.js'), 'b\n'.repeat(10))
+    gate.call('Agent', { subagent_type: 'starter:writer', description: 'build', prompt: 'p' })
+    return gate
+  }
+  const blocked = delegated().hook('stop')
+  assert.equal(blocked.decision, 'block')
+  assert.match(blocked.reason, /`reviewer` subagent/)
+  for (const subagent_type of ['starter:reviewer', 'reviewer']) {
+    const reviewed = delegated()
+    reviewed.call('Agent', { subagent_type, description: 'review', prompt: 'p' })
+    assert.equal(reviewed.hook('stop'), null)
+  }
+  // Not a reviewer: a name that only contains the word doesn't count as a review.
+  const other = delegated()
+  other.call('Agent', { subagent_type: 'pre-reviewer-notes', description: 'x', prompt: 'p' })
+  assert.equal(other.hook('stop').decision, 'block')
+  const unchanged = gateRepo()
+  unchanged.hook('start')
+  unchanged.call('Agent', { subagent_type: 'starter:reader', description: 'read', prompt: 'p' })
+  assert.equal(unchanged.hook('stop'), null)
 })
 
 test('the review gate does not ask again after a one-line answer with no tool call', () => {
@@ -522,4 +550,24 @@ test('every plugin workflow script parses as plain JavaScript', () => {
     const body = readFileSync(join(dir, name), 'utf8').replace(/^export const meta/m, 'const meta')
     assert.doesNotThrow(() => new Function('args', 'agent', 'parallel', 'pipeline', 'phase', 'log', 'budget', 'workflow', `return (async () => {\n${body}\n})()`), name)
   }
+})
+
+function agentLog(input, env = {}) {
+  const data = mkdtempSync(join(tmpdir(), 'starter-agents-'))
+  const result = spawnSync(process.execPath, [join(scripts, 'agent-log.mjs')], { input, encoding: 'utf8', env: { ...process.env, CLAUDE_PLUGIN_DATA: data, ...env } })
+  const file = join(data, 'agents.jsonl')
+  return { status: result.status, out: result.stdout + result.stderr, lines: existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line)) : [] }
+}
+
+test('the agent log writes one line per Agent call, nothing when off, and survives garbage input', () => {
+  const call = JSON.stringify({ session_id: 's1', tool_name: 'Agent', tool_input: { subagent_type: 'starter:writer', model: 'opus', description: 'fix it', prompt: 'p' } })
+  const logged = agentLog(call)
+  assert.deepEqual([logged.status, logged.out], [0, ''])
+  const [{ ts, ...line }] = logged.lines
+  assert.ok(ts)
+  assert.deepEqual(line, { session_id: 's1', subagent_type: 'starter:writer', model: 'opus', effort: null, description: 'fix it' })
+  assert.deepEqual(agentLog(call, { CLAUDE_STARTER_AGENT_LOG: 'off' }), { status: 0, out: '', lines: [] })
+  assert.deepEqual(agentLog('not json'), { status: 0, out: '', lines: [] })
+  // A data dir that can't be created (its parent is a file) is a write error: still silent.
+  assert.deepEqual(agentLog(call, { CLAUDE_PLUGIN_DATA: join(fileURLToPath(import.meta.url), 'x') }), { status: 0, out: '', lines: [] })
 })

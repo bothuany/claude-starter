@@ -117,7 +117,7 @@ const explain = c => agent(
   `restating method names. Every fact needs evidence: an anchor that is an exact substring of one line at the ` +
   `head ref. Do not invent a rationale; leave \`why\` empty when the code and comments do not show it.\n` +
   `Also give the one diagram that explains this component, and list changes the PR text does not mention.`,
-  { label: `explain:${c.id}`, phase: 'Explain', schema: FACTS, model: 'sonnet' })
+  { label: `explain:${c.id}`, phase: 'Explain', schema: FACTS, model: 'sonnet', agentType: 'Explore' })
 
 const check = (res, c) => {
   if (!res || !res.facts.length) return null
@@ -150,7 +150,7 @@ const release = agent(
   `or DDL that is not in the repo, config rows or settings that must exist per environment, package versions ` +
   `and merge order between the repos, deploy effects (downtime, leases, restarts), and follow-ups in other ` +
   `repos. Give evidence for each item. Do not repeat code behavior; only preconditions and consequences.`,
-  { label: 'release', phase: 'Release', schema: RELEASE, model: 'sonnet' })
+  { label: 'release', phase: 'Release', schema: RELEASE, model: 'sonnet', agentType: 'Explore' })
 
 const [components, rel] = await Promise.all([pipeline(comps, explain, check), release])
 const done = components.filter(Boolean)

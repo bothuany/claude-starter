@@ -32,7 +32,9 @@ const GENERATED_PATH = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock
 // Untracked files larger than this are left out of snapshots: hashing them can outlast the hook's timeout.
 const MAX_UNTRACKED_BYTES = 2 * 1024 * 1024
 const REVIEW_CALL = /code-review/
-const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell'])
+const REVIEWER_AGENT = /(^|:)reviewer$/
+// Agent: the lead delegates its edits, so a subagent call can change files too.
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell', 'Agent'])
 const FOREIGN_REFLOG = /^(pull|merge|checkout|reset|rebase|cherry-pick|am)\b/
 
 function git(cwd, args, env, input) {
@@ -103,8 +105,8 @@ export function crosses(files) {
   return { files: files.length, lines, over: (files.length >= MIN_FILES && lines >= MIN_FILES_LINES) || lines > MIN_LINES }
 }
 
-// What the transcript holds from line `from` on: a code-review call (the Skill tool from Claude, or the user typing
-// /code-review), and any tool call that can change files. Complete lines only: a line still being written is read
+// What the transcript holds from line `from` on: a review (the Skill tool calling code-review, the reviewer subagent,
+// or the user typing /code-review), and any tool call that can change files. Complete lines only: a line still being written is read
 // on the next check.
 export function scanTranscript(transcriptPath, from) {
   if (!transcriptPath || !existsSync(transcriptPath)) {
@@ -125,7 +127,8 @@ export function scanTranscript(transcriptPath, from) {
           if (block?.type !== 'tool_use') {
             continue
           }
-          reviewed ||= block.name === 'Skill' && REVIEW_CALL.test(String(block.input?.skill ?? ''))
+          reviewed ||= (block.name === 'Skill' && REVIEW_CALL.test(String(block.input?.skill ?? ''))) ||
+            (block.name === 'Agent' && REVIEWER_AGENT.test(String(block.input?.subagent_type ?? '')))
           edited ||= EDIT_TOOLS.has(block.name)
         }
       } else if (entry.type === 'user') {
@@ -257,9 +260,10 @@ function stop(input) {
   console.log(JSON.stringify({
     decision: 'block',
     reason: `claude-starter review gate: since the last review this session changed ${size.files} non-test file(s), ` +
-      `${size.lines} line(s) (${list}). Call the code-review skill with the Skill tool (args: the effort the repository's REVIEW.md gives this ` +
+      `${size.lines} line(s) (${list}). Send the change to the \`reviewer\` subagent, which runs code-review itself, or call the code-review ` +
+      `skill with the Skill tool if that agent isn't available (effort: the one the repository's REVIEW.md gives this ` +
       `change's risk tier; \`medium\` when there is no REVIEW.md or the tier is unclear). For each ` +
-      'finding: reproduce it with a command or a throwaway test, then fix it; dismiss it only with evidence (the ' +
+      'finding: reproduce it with a command or a throwaway test, then send the fix to the writer; dismiss it only with evidence (the ' +
       'line you read, or a command you ran and its output); report it as unverified only if checking would take ' +
       'more than a few minutes or needs the user\'s decision. "The task\'s examples pass" and "it was like that ' +
       'before" are not evidence. If the change is only docs, a rename or formatting, if these changes were not made in ' +
