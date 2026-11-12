@@ -13,7 +13,7 @@ Works from your next session. Nothing is written to your `CLAUDE.md`. Needs Node
 
 ## How it works
 
-![How claude-starter works. Hooks load the rules at session start, log every subagent call and run the review gate at stop. You shape an idea with /grill, visual-plan and /review-setup. The lead writes no code and picks a role by the type of task: locator (Haiku) finds and lists, reader (Opus, medium) reads and reports, writer (Sonnet, high) changes files and is sent again on Opus when its checks fail twice, reviewer (Opus, high) checks with a fresh context and REVIEW.md. For a task that fits no role the lead picks the model and effort itself. diff-walkthrough, /clean-worktrees and /monthly-review come after.](assets/loop.svg)
+![How claude-starter works. Hooks load the rules at session start, log every subagent call and run the review gate at stop. You shape an idea with /grill, visual-plan and /review-setup. The lead writes no code and picks a role by the type of task: locator (Haiku) finds and lists, reader (Opus, medium) reads and reports, writer (Sonnet, high) changes files and is sent again on Opus when its checks fail twice, reviewer (Opus, high) checks with a fresh context and REVIEW.md. For a task that fits no role the lead picks the model and effort itself. diff-walkthrough, /clean-worktrees and /monthly-review come after.](assets/how-it-works.svg)
 
 You talk to one session, the lead. It asks what it can't look up, plans, and hands the work out. It never writes code itself, so its context stays free for decisions.
 
