@@ -72,7 +72,7 @@
     <text x="998" y="160" class="n">No role fits</text>
     <text x="998" y="181" class="s">design, planning, research</text>
     <rect x="998" y="188" width="158" height="19" rx="9.5" class="tag"/><text x="1077" y="202" text-anchor="middle" class="tagt">lead picks model · effort</text>
-    <path d="M520 268 C560 268 560 173 582 173" stroke="#8a8079" stroke-width="2" fill="none" marker-end="url(#a)"/>
+    <path d="M520 290 H544 Q556 290 556 278 V185 Q556 173 568 173 H582" stroke="#8a8079" stroke-width="2" fill="none" marker-end="url(#a)"/>
     <text x="600" y="236" class="s" font-size="12">conclusions come back</text>
   </g>
 
@@ -133,10 +133,10 @@
   <g id="anim">
   <circle r="5.5" fill="#f5f0eb" opacity="0"><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.0167;0.0833;1" path="M405 196 V226"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.0167;0.0208;0.0792;0.0833;1"/></circle>
   <rect x="290" y="132" width="230" height="64" rx="14" fill="none" stroke="#d97757" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0;0.025;0.0583;0.0833;1"/></rect>
-  <circle r="5.5" fill="#f5f0eb" opacity="0"><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.0833;0.1833;1" path="M520 268 C560 268 560 173 582 173"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.0833;0.0875;0.1792;0.1833;1"/></circle>
+  <circle r="5.5" fill="#f5f0eb" opacity="0"><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.0833;0.1833;1" path="M520 290 H544 Q556 290 556 278 V185 Q556 173 568 173 H582"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.0833;0.0875;0.1792;0.1833;1"/></circle>
   <rect x="590" y="132" width="180" height="82" rx="14" fill="none" stroke="#d97757" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.1667;0.1917;0.325;0.35;1"/></rect>
   <rect x="785" y="132" width="180" height="82" rx="14" fill="none" stroke="#d97757" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.1667;0.1917;0.325;0.35;1"/></rect>
-  <circle r="5.5" fill="#f5f0eb" opacity="0"><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="1;1;0;0" keyTimes="0;0.3333;0.4167;1" path="M520 268 C560 268 560 173 582 173"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.3333;0.3375;0.4125;0.4167;1"/></circle>
+  <circle r="5.5" fill="#f5f0eb" opacity="0"><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="1;1;0;0" keyTimes="0;0.3333;0.4167;1" path="M520 290 H544 Q556 290 556 278 V185 Q556 173 568 173 H582"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.3333;0.3375;0.4125;0.4167;1"/></circle>
   <circle r="5.5" fill="#161412" opacity="0"><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.4167;0.4917;1" path="M520 334 H582"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.4167;0.4208;0.4875;0.4917;1"/></circle>
   <rect x="590" y="282" width="270" height="104" rx="14" fill="none" stroke="#d97757" stroke-width="2.5" opacity="0"><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.475;0.5;0.6583;0.6833;1"/></rect>
   <circle r="5.5" fill="#f5f0eb" opacity="0"><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.6667;0.7333;1" path="M725 386 V440"/><animate attributeName="opacity" dur="12s" repeatCount="indefinite" values="0;0;1;1;0;0" keyTimes="0;0.6667;0.6708;0.7292;0.7333;1"/></circle>
