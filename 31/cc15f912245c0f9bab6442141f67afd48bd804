@@ -1,0 +1,19 @@
+assets/loop.svg
+  s_fd78d1118bf5f6::t_a26aca9d3be3d9 132-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "31cc15f912245c0f9bab6442141f67afd48bd804",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
