@@ -1,0 +1,45 @@
+assets/loop.svg
+  s_fd78d1118bf5f6::t_128372a44a499a 1,12-13,16,23-27,50,53-56,63-76,81-92,97-102,104-107,109-113,118-130
+README.md
+  s_fd78d1118bf5f6::t_ac804c60dd2306 5,16,21,30
+docs/DETAILS.md
+  s_fd78d1118bf5f6::t_3c4a255241fdde 275
+plugins/starter/.claude-plugin/plugin.json
+  s_fd78d1118bf5f6::t_a34235a0cf2416 4-5
+plugins/starter/agents/reader.md
+  s_fd78d1118bf5f6::t_52417e8a89b506 1-16
+plugins/starter/agents/reviewer.md
+  s_fd78d1118bf5f6::t_3f8173a8a7dd1d 1-15
+plugins/starter/agents/writer.md
+  s_fd78d1118bf5f6::t_10bf8a2cd12380 1-16
+plugins/starter/hooks/hooks.json
+  s_fd78d1118bf5f6::t_671ea6fe00d622 35-46
+plugins/starter/rules.md
+  s_fd78d1118bf5f6::t_99ec91b6848bee 10-12,17
+plugins/starter/scripts/agent-log.mjs
+  s_fd78d1118bf5f6::t_946576eab66efd 1-23
+plugins/starter/scripts/review-gate.mjs
+  s_fd78d1118bf5f6::t_adffe19c8f01ef 35-37,108-109,130-131,263-264,266
+plugins/starter/skills/diff-walkthrough/scripts/build_deck.py
+  s_fd78d1118bf5f6::t_8cc46972bafe4c 323,329,331,347,372,425,435,466,570,572,582,586-587,976-977,1089-1090
+plugins/starter/skills/diff-walkthrough/scripts/gather-facts.workflow.js
+  s_fd78d1118bf5f6::t_c2dbf08536077a 120,153
+test/scripts.test.mjs
+  s_fd78d1118bf5f6::t_23f48976fda85c 331,365-392,554-573
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "902f991689deecd2da4dd05234c51b541667c25d",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
