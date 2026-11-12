@@ -1,0 +1,19 @@
+assets/how-it-works.svg
+  s_fd78d1118bf5f6::t_75cb8f3140da4d 75,136,139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f05931d74be2c4fdb690de58be5db555d327b0b0",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
