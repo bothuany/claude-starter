@@ -1,0 +1,55 @@
+assets/loop.svg
+  s_fd78d1118bf5f6::t_dbefdd84341dda 2,13,121
+  s_fd78d1118bf5f6::t_10de078d3c17ca 25,39,54,70,85
+  s_fd78d1118bf5f6::t_04224337ed46fc 15
+  s_fd78d1118bf5f6::t_4a88f30533fc4c 1,3-12,14,16-24,26-38,40-53,55-69,71-84,86-120
+README.md
+  s_fd78d1118bf5f6::t_bd9ff5d100b471 16
+  s_fd78d1118bf5f6::t_da01a5c7ebc560 1,3,5,12,18,20-22,24,26,28-38,40,42,46,48-52,54,58-60,62,66,68-69,72,74
+  s_fd78d1118bf5f6::t_6e6157b2bb2977 44,56,64
+  s_fd78d1118bf5f6::t_10577f6a0aa0f6 57
+docs/DETAILS.md
+  s_fd78d1118bf5f6::t_32e94ee919dbcb 1-354
+plugins/starter/.claude-plugin/plugin.json
+  s_fd78d1118bf5f6::t_4bea0bb6dcb74b 4-5
+plugins/starter/agents/locator.md
+  s_fd78d1118bf5f6::t_21e8c1eab6a069 1-14
+plugins/starter/rules.md
+  s_fd78d1118bf5f6::t_db0494dca2d6c9 13
+plugins/starter/skills/diff-walkthrough/SKILL.md
+  s_fd78d1118bf5f6::t_494589a44dfe7d 1-149
+plugins/starter/skills/diff-walkthrough/assets/deck.css
+  s_fd78d1118bf5f6::t_429ac5fa29fafb 1-305
+plugins/starter/skills/diff-walkthrough/references/storyboard.md
+  s_fd78d1118bf5f6::t_ba0d2cc7158193 1-228
+plugins/starter/skills/diff-walkthrough/scripts/build_deck.py
+  s_fd78d1118bf5f6::t_ea755dfea23683 1-1103
+plugins/starter/skills/diff-walkthrough/scripts/codegraph.py
+  s_fd78d1118bf5f6::t_1062d8f27b04b4 1-211
+plugins/starter/skills/diff-walkthrough/scripts/drv.sh
+  s_fd78d1118bf5f6::t_94176ac1c41b3c 1-28
+plugins/starter/skills/diff-walkthrough/scripts/gather-facts.workflow.js
+  s_fd78d1118bf5f6::t_49058b7069abaa 1-159
+plugins/starter/skills/diff-walkthrough/scripts/sheets.py
+  s_fd78d1118bf5f6::t_2397f51a24b480 1-24
+plugins/starter/skills/visual-plan/SKILL.md
+  s_fd78d1118bf5f6::t_c37a427555281f 1-94
+plugins/starter/skills/visual-plan/references/blocks.md
+  s_fd78d1118bf5f6::t_37d61438d4960b 1-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "95b8e4d467f28b6d35c3f37816c6580e2b3d9b4f",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
