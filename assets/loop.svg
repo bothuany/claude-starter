@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" role="img" aria-label="How claude-starter works: rules load at session start; you shape the idea with grill and visual-plan; the lead plans and delegates; reading fans out to locator and Explore; one writer or the fan-out workflow builds; a fresh reviewer checks against REVIEW.md; the review gate asks for a review at stop; diff-walkthrough, clean-worktrees and monthly-review come after">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8a8079"/></marker>
+    <marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#d97757"/></marker>
+    <style>
+      .t{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif}
+      .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .h{font-size:13px;letter-spacing:2px;fill:#8a8079;font-weight:600}
+      .b{fill:#232020;stroke:#3a3431;stroke-width:1.5}
+      .n{font-size:17px;font-weight:700;fill:#f5f0eb}
+      .s{font-size:13px;fill:#a89d96}
+    </style>
+  </defs>
+  <rect width="1200" height="760" rx="24" fill="#161412"/>
+
+  <!-- hooks rail -->
+  <g class="t">
+    <rect x="30" y="26" width="1140" height="46" rx="12" fill="#1c1917" stroke="#2e2926"/>
+    <text x="50" y="55" class="h">HOOKS</text>
+    <circle cx="140" cy="49" r="5" fill="#d97757"/>
+    <text x="154" y="54" font-size="15" fill="#f5f0eb">Session start: working rules <tspan class="s">(~1,000 tokens)</tspan></text>
+    <circle cx="760" cy="49" r="5" fill="#d97757"/>
+    <text x="774" y="54" font-size="15" fill="#f5f0eb">Stop: review gate <tspan class="s">asks once if code changed unreviewed</tspan></text>
+  </g>
+
+  <!-- shape -->
+  <g class="t">
+    <text x="40" y="118" class="h">SHAPE</text>
+    <rect x="30" y="132" width="200" height="74" rx="14" class="b"/>
+    <text x="50" y="162" class="n m">/grill</text>
+    <text x="50" y="186" class="s">settle the idea, card by card</text>
+    <rect x="30" y="222" width="200" height="74" rx="14" class="b"/>
+    <text x="50" y="252" class="n m">visual-plan</text>
+    <text x="50" y="276" class="s">plan as a visual contract</text>
+    <rect x="30" y="312" width="200" height="74" rx="14" class="b"/>
+    <text x="50" y="342" class="n m">/review-setup</text>
+    <text x="50" y="366" class="s">draft REVIEW.md once</text>
+  </g>
+
+  <!-- you + lead -->
+  <g class="t">
+    <rect x="290" y="132" width="230" height="64" rx="14" fill="none" stroke="#5c544e" stroke-width="1.5" stroke-dasharray="6 6"/>
+    <text x="405" y="160" text-anchor="middle" class="n">You</text>
+    <text x="405" y="182" text-anchor="middle" class="s">decide, approve</text>
+    <path d="M405 196 V226" stroke="#8a8079" stroke-width="2" marker-end="url(#a)"/>
+    <rect x="290" y="232" width="230" height="154" rx="18" fill="#d97757"/>
+    <text x="405" y="268" text-anchor="middle" font-size="22" font-weight="700" fill="#161412">Lead</text>
+    <text x="405" y="292" text-anchor="middle" font-size="14" fill="#2b1f19">your main session</text>
+    <text x="405" y="324" text-anchor="middle" font-size="15" fill="#161412">asks · plans · delegates</text>
+    <text x="405" y="346" text-anchor="middle" font-size="15" fill="#161412">reads diffs · checks</text>
+    <text x="405" y="370" text-anchor="middle" font-size="15" font-weight="700" fill="#161412">writes no code</text>
+    <path d="M230 259 H282" stroke="#8a8079" stroke-width="2" marker-end="url(#a)"/>
+  </g>
+
+  <!-- read lane -->
+  <g class="t">
+    <text x="600" y="118" class="h">READ · IN PARALLEL</text>
+    <rect x="590" y="132" width="180" height="74" rx="14" class="b"/>
+    <text x="608" y="162" class="n m">locator</text>
+    <text x="608" y="186" class="s">Haiku · find &amp; list</text>
+    <rect x="785" y="132" width="180" height="74" rx="14" class="b"/>
+    <text x="803" y="162" class="n m">Explore</text>
+    <text x="803" y="186" class="s">wide reading</text>
+    <rect x="980" y="132" width="190" height="74" rx="14" class="b"/>
+    <text x="998" y="162" class="n">Web research</text>
+    <text x="998" y="186" class="s">obscura, then WebSearch</text>
+    <path d="M520 268 C560 268 560 170 582 170" stroke="#8a8079" stroke-width="2" fill="none" marker-end="url(#a)"/>
+    <text x="600" y="228" class="s" font-size="12">conclusions come back</text>
+  </g>
+
+  <!-- write lane -->
+  <g class="t">
+    <text x="600" y="252" class="h">WRITE · ONE AT A TIME</text>
+    <rect x="590" y="266" width="270" height="94" rx="14" class="b"/>
+    <text x="608" y="296" class="n">Writer subagent</text>
+    <text x="608" y="320" class="s">one per repository</text>
+    <text x="608" y="342" class="s">builds · tests · commits</text>
+    <text x="878" y="318" class="s" font-size="14">or</text>
+    <rect x="905" y="266" width="265" height="94" rx="14" class="b"/>
+    <text x="923" y="296" class="n m">/fan-out</text>
+    <text x="923" y="320" class="s">builder → reviewer workflow</text>
+    <text x="923" y="342" class="s">only when you approve</text>
+    <path d="M520 318 H582" stroke="#d97757" stroke-width="2.5" marker-end="url(#o)"/>
+  </g>
+
+  <!-- check lane -->
+  <g class="t">
+    <text x="1170" y="406" class="h" text-anchor="end">CHECK · FRESH CONTEXT</text>
+    <rect x="590" y="420" width="580" height="118" rx="14" class="b"/>
+    <text x="608" y="450" class="n">Reviewer</text>
+    <text x="608" y="474" class="s">reads <tspan class="m" fill="#f5f0eb">REVIEW.md</tspan> first · depth follows its risk tier</text>
+    <text x="608" y="498" class="s">second round: new diff only · fix the whole class · stop after 3 rounds</text>
+    <g font-size="13">
+      <rect x="608" y="508" width="70" height="22" rx="11" fill="#1d2a1f"/><text x="643" y="523" text-anchor="middle" fill="#9cc4a4">fixed</text>
+      <rect x="686" y="508" width="88" height="22" rx="11" fill="#2a2420"/><text x="730" y="523" text-anchor="middle" fill="#c9bfb8">dismissed</text>
+      <rect x="782" y="508" width="104" height="22" rx="11" fill="#2a2420"/><text x="834" y="523" text-anchor="middle" fill="#c9bfb8">pre-existing</text>
+      <rect x="894" y="508" width="122" height="22" rx="11" fill="#2d2118"/><text x="955" y="523" text-anchor="middle" fill="#e7a98f">needs decision</text>
+    </g>
+    <path d="M725 360 V412" stroke="#8a8079" stroke-width="2" marker-end="url(#a)"/>
+    <text x="735" y="392" class="s" font-size="12">diff</text>
+    <path d="M582 480 C540 480 470 440 430 394" stroke="#8a8079" stroke-width="2" fill="none" stroke-dasharray="5 5" marker-end="url(#a)"/>
+    <text x="420" y="506" class="s" font-size="12">findings to settle</text>
+  </g>
+
+  <!-- after -->
+  <g class="t">
+    <text x="40" y="600" class="h">AFTER</text>
+    <rect x="30" y="614" width="360" height="106" rx="14" class="b"/>
+    <text x="50" y="646" class="n m">diff-walkthrough</text>
+    <text x="50" y="670" class="s">learn the change: a slide-style</text>
+    <text x="50" y="690" class="s">tour of the diff, step by step</text>
+    <rect x="410" y="614" width="370" height="106" rx="14" class="b"/>
+    <text x="430" y="646" class="n m">/clean-worktrees</text>
+    <text x="430" y="670" class="s">remove clean, merged worktrees and</text>
+    <text x="430" y="690" class="s">branches; never deletes through a link</text>
+    <rect x="800" y="614" width="370" height="106" rx="14" class="b"/>
+    <text x="820" y="646" class="n m">/monthly-review</text>
+    <text x="820" y="670" class="s">check /insights against your setup,</text>
+    <text x="820" y="690" class="s">apply at most two, prune stale memory</text>
+  </g>
+</svg>
