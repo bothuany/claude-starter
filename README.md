@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews what it changed, and cleans up after itself. Every piece that changes how Claude works was measured before it shipped.
 
-[![version 0.9.3](https://img.shields.io/badge/version-0.9.3-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.9.4](https://img.shields.io/badge/version-0.9.4-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -36,7 +36,7 @@ You talk to one session, the lead. It asks what it can't look up, plans, and han
 | `diff-walkthrough` | Turns a diff into a slide-style tour you step through until you know the change. Needs `uv` |
 | `/starter:clean-worktrees` | Removes clean, merged worktrees and branches, never through a symlink into your checkout |
 | `/starter:monthly-review` | Checks `/insights` against your setup, applies at most two changes, prunes stale memory |
-| `/starter:setup` | Optional add-ons (context7, obscura, i-have-adhd, ponytail) and turning pieces off, each shown first |
+| `/starter:setup` | Optional add-ons (context7, obscura, i-have-adhd, ponytail) and turning pieces off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip project-setup` |
 
 ## When fan-out runs
 

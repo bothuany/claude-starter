@@ -6,6 +6,7 @@
 //   node setup.mjs check [--data <plugin data dir>]   report what is installed, as JSON
 //   node setup.mjs apply [--rules on|off] [--remove-old-rules] [--base-ref head|fresh [--scope project|user]]
 //                        [--context7] [--obscura] [--review-gate on|off] [--data <plugin data dir>]
+//   node setup.mjs skip|unskip review-md|project-setup --data <plugin data dir>   stop or resume asking about it in this project
 //
 // It writes flags in the plugin's data dir (rules off, review gate off), user-scope MCP servers (context7, obscura)
 // through `claude mcp add`, worktree.baseRef in the user's settings.json or, with the default project scope, the
@@ -18,6 +19,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { claudeMd, configDir, findBlock, oldBlockState, rulesOff } from './rules-block.mjs'
 import { gateOff } from './review-gate.mjs'
+import { STEPS, claudeCodeSetupInstalled, projectInfo, setStep, stateFile, stateUnreadable, stepStates } from './project-setup.mjs'
 
 const settingsFile = join(configDir, 'settings.json')
 const isWin = process.platform === 'win32'
@@ -120,6 +122,7 @@ function pluginEnabled(name) {
 
 function check(dataDir) {
   readSettings()
+  const project = projectInfo(process.cwd())
   return {
     configDir,
     project: process.cwd(),
@@ -133,6 +136,7 @@ function check(dataDir) {
     iHaveAdhd: pluginEnabled('i-have-adhd'),
     ponytail: pluginEnabled('ponytail'),
     reviewGate: dataDir && gateOff(dataDir) ? 'off' : 'on',
+    projectReminders: project ? { root: project.root, ...stepStates(dataDir, project), claudeCodeSetupInstalled: claudeCodeSetupInstalled(), ...(dataDir && stateUnreadable(dataDir) ? { stateFile: `unreadable (not a valid JSON object; fix or delete it): ${stateFile(dataDir)}` } : {}) } : 'not in a git repository with commits',
   }
 }
 
@@ -261,7 +265,21 @@ if (command === 'check') {
   for (const line of apply(options)) {
     console.log(line)
   }
+} else if (command === 'skip' || command === 'unskip') {
+  const [step] = rest
+  const project = projectInfo(process.cwd())
+  if (!STEPS.includes(step) || !dataDir || !project) {
+    console.error(!project ? 'not in a git repository with commits' : `usage: setup.mjs ${command} ${STEPS.join('|')} --data <dir>`)
+    process.exit(1)
+  }
+  // Clearing the stamp on unskip makes the reminder come back at the next session.
+  const written = setStep(dataDir, project, step, command === 'skip' ? 'declined' : null) && (command === 'skip' || setStep(dataDir, project, 'reminded', null))
+  if (!written) {
+    console.error(`${stateFile(dataDir)} is not a valid JSON object; fix or delete it first, nothing was changed.`)
+    process.exit(1)
+  }
+  console.log(command === 'skip' ? `${step}: declined for ${project.root} (and its worktrees)` : `${step}: back to unknown for ${project.root} (and its worktrees)`)
 } else {
-  console.error('usage: setup.mjs check [--data <dir>] | apply [--rules on|off] [--remove-old-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
+  console.error('usage: setup.mjs check [--data <dir>] | skip|unskip review-md|project-setup --data <dir> | apply [--rules on|off] [--remove-old-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
   process.exit(1)
 }
