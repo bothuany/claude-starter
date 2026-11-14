@@ -1,0 +1,446 @@
+import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+import type { On } from 'claude-code'
+
+const PANE = {
+  plugin: 'starter',
+  component: 'Pane',
+  requestId: 'subagents',
+  props: { title: 'Subagents', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+} as const
+const BY = { plugin: 'starter', tier: 'user' } as const
+const RULE = '─'.repeat(80)
+const BAR = '░'.repeat(14)
+
+const spawn = (tool_use_id: string, subagentType: string, model?: string) => ({
+  tool_use_id, prompt: 'p', description: `task ${tool_use_id}`, subagentType, model, provider: BY,
+  parentModel: 'opus', background: true, fork: false,
+})
+const complete = (agentId: string, reason: 'answer' | 'error', usage?: ReturnType<typeof tokens>, answer = '') => ({
+  answer, durationMs: 1, isAborted: false, turnId: `t-${agentId}`, agentId, reason, usage,
+})
+const tokens = (model: string, input: number, output: number, cacheRead = 0, cacheWrite = 0) => ({
+  input_tokens: input, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheWrite, model,
+})
+const file = (name: string) => ({ name, kind: 'file' as const, size: 0, mtimeMs: 0, isLink: false })
+const COMMAND = { command: 'subagents', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } } as const
+
+function world(on: On) {
+  const time = mock.clock(on, { now: 1000 })
+  on('ui.panes', () => ({ value: [] }))
+  on('turn.complete', () => ({ text: '' }))
+  return time
+}
+
+function pins(on: On) {
+  on('fs.list', () => ({ value: [file('writer.md'), file('locator.md')] }))
+  on('fs.read', (_, e) => ({ value: e.path.endsWith('writer.md') ? '---\nname: x\nmodel: sonnet\neffort: high\n---\nbody effort: no' : '---\nmodel: haiku\n---\n' }))
+}
+
+function opens(on: On) {
+  mock.store(on)
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+}
+const extended = ($: Engine) => $.command.run({ ...COMMAND, args: 'extended' })
+const open = ($: Engine) => $.command.run({ ...COMMAND, args: '' })
+
+async function step($: Engine, agentId: string | undefined, model: string) {
+  const stream = $.turn.step({ turnId: 't', index: 0, model, messageCount: 1, agentId })
+  let read = await stream.next()
+  while (!read.done) read = await stream.next()
+  return read.value
+}
+
+async function texts($: Engine, surface: 'terminal' | 'desktop' = 'terminal') {
+  const ui = await $.ui.mount({ ...PANE, surface })
+  const found: string[] = []
+  for (const t of await ui.findAll({ type: 'Text' })) found.push(t.text ?? '')
+  await ui.unmount()
+  return found
+}
+
+test('the empty pane says no subagent has run', async ($, on) => {
+  on('clock.now', () => ({ value: 1000 }))
+  expect(await texts($)).toEqual(['No subagents have run yet in this session.'])
+})
+
+test('the pane stays closed until /subagents, then opens in later sessions', async ($, on) => {
+  mock.store(on)
+  const time = world(on)
+  const opened: string[] = []
+  on('command.register', () => ({ value: { command: 'subagents' } }))
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  const start = async () => {
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await time.settle()
+  }
+
+  await start()
+  expect(opened).toEqual([])
+
+  const out = await $.command.run({ ...COMMAND, args: '' })
+  expect(out.text).toBe('Subagents pane opened.')
+  expect(opened).toEqual(['subagents'])
+
+  await start()
+  expect(opened).toEqual(['subagents', 'subagents'])
+})
+
+test('rows show the resolved model, the explicit effort else the role pin, and end with their outcome', async ($, on) => {
+  let n = 0
+  world(on)
+  pins(on)
+  on('agent.spawn', (_, e) => ({ model: e.model ?? 'resolved', agentId: `a${++n}` }))
+  let callId = ''
+  on('tool.call', (_, e) => {
+    callId = e.tool_use_id
+    return { result: {} }
+  })
+
+  await $.agent.spawn(spawn('u1', 'starter:writer'))
+  await $.agent.spawn(spawn('u2', 'starter:locator'))
+  await $.agent.spawn(spawn('u3', 'general-purpose'))
+  await $.agent.spawn(spawn('u4', 'starter:writer', 'opus'))
+  await $.tool.call({ tool: 'Agent', subagent_type: 'starter:reader', model: 'opus', effort: 'max', description: 'd', prompt: 'p' })
+  await $.agent.spawn(spawn(callId, 'starter:reader', 'opus'))
+  await $.turn.complete(complete('a1', 'answer'))
+  await $.turn.complete(complete('a2', 'error'))
+
+  expect(await texts($)).toEqual([
+    'SUBAGENTS', '3 running', RULE,
+    '⠼ general-purpose resolved', '0:00', `  ${BAR}  0 tools`,
+    '⠴ writer    Opus · high', '0:00', `  ${BAR}  0 tools`,
+    '⠦ reader    Opus · max', '0:00', `  ${BAR}  0 tools`,
+    '✗ locator   resolved  error', '0:00',
+    '✓ writer    resolved · high', '0:00',
+    RULE, 'session  0 tok',
+  ])
+})
+
+test('a failed definition read keeps the other pins and is read again on the next spawn', async ($, on) => {
+  let n = 0
+  let failures = 1
+  world(on)
+  on('fs.list', () => ({ value: [file('reader.md'), file('writer.md')] }))
+  on('fs.read', (_, e) => {
+    if (e.path.endsWith('reader.md') && failures-- > 0) throw new Error('busy')
+    return { value: `---\neffort: ${e.path.endsWith('reader.md') ? 'medium' : 'high'}\n---\n` }
+  })
+  on('agent.spawn', () => ({ model: 'm', agentId: `a${++n}` }))
+
+  await $.agent.spawn(spawn('u1', 'starter:writer'))
+  await $.agent.spawn(spawn('u2', 'starter:reader'))
+
+  const lines = await texts($)
+  expect(lines.filter(line => / m · /.test(line))).toEqual(['⠼ writer    m · high', '⠴ reader    m · medium'])
+})
+
+test('a turn.complete that arrives before the spawn settles still closes the row', async ($, on) => {
+  const time = world(on)
+  on('agent.spawn', async () => {
+    await time.sleep(10)
+    return { model: 'm', agentId: 'a1' }
+  })
+
+  const spawning = $.agent.spawn(spawn('u1', 'general-purpose'))
+  await time.settle()
+  await $.turn.complete(complete('a1', 'answer'))
+  await time.advance(10)
+  await spawning
+
+  expect(await texts($)).toEqual(['SUBAGENTS', '0 running', RULE, '✓ general-purpose m', '0:00', RULE, 'session  0 tok'])
+})
+
+test('a resumed subagent reuses its row, and a denied resume leaves it finished', async ($, on) => {
+  const time = world(on)
+  on('agent.spawn', (_, e) => (e.prompt === 'no' ? { deny: 'no' } : { model: 'm', agentId: e.resume?.agentId ?? 'a1' }))
+
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+  await $.turn.complete(complete('a1', 'answer'))
+  await time.advance(5000)
+  await $.agent.spawn({ ...spawn('u2', 'general-purpose'), resume: { agentId: 'a1' } })
+  expect(await texts($)).toEqual(['SUBAGENTS', '1 running', RULE, '⠼ general-purpose m', '0:00', `  ${BAR}  0 tools`, RULE, 'session  0 tok'])
+
+  await time.advance(2000)
+  await $.turn.complete(complete('a1', 'answer'))
+  const finished = ['SUBAGENTS', '0 running', RULE, '✓ general-purpose m', '0:02', RULE, 'session  0 tok']
+  expect(await texts($)).toEqual(finished)
+
+  await $.agent.spawn({ ...spawn('u3', 'general-purpose'), prompt: 'no', resume: { agentId: 'a1' } }).catch(() => undefined)
+  expect(await texts($)).toEqual(finished)
+})
+
+test('a spawn whose next rejects leaves no row running', async ($, on) => {
+  world(on)
+  on('agent.spawn', () => {
+    throw new Error('spawn failed')
+  })
+
+  await $.agent.spawn(spawn('u1', 'general-purpose')).catch(() => undefined)
+
+  expect(await texts($)).toEqual(['No subagents have run yet in this session.'])
+})
+
+test('at most 20 subagents show as running, the oldest dropped first', async ($, on) => {
+  let n = 0
+  world(on)
+  on('agent.spawn', () => ({ model: 'm', agentId: `a${++n}` }))
+
+  for (let i = 1; i <= 22; i++) await $.agent.spawn(spawn(`u${i}`, `t${i}`))
+
+  const roles = (await texts($)).filter(line => / m$/.test(line)).map(line => line.slice(2).split(' ')[0])
+  expect(roles).toEqual(Array.from({ length: 20 }, (_, i) => `t${i + 3}`))
+})
+
+test('only the last 10 finished subagents stay in Recent', async ($, on) => {
+  let n = 0
+  world(on)
+  on('agent.spawn', () => ({ model: 'm', agentId: `a${++n}` }))
+
+  for (let i = 1; i <= 12; i++) {
+    await $.agent.spawn(spawn(`u${i}`, `t${i}`))
+    await $.turn.complete(complete(`a${i}`, 'answer'))
+  }
+
+  const lines = await texts($)
+  expect(lines.slice(0, 3)).toEqual(['SUBAGENTS', '0 running', RULE])
+  const roles = lines.filter(line => line.startsWith('✓')).map(line => line.slice(2).split(' ')[0])
+  expect(roles).toEqual(Array.from({ length: 10 }, (_, i) => `t${12 - i}`))
+})
+
+test('compact shows the current tool and its target for a running agent, and its running tokens', async ($, on) => {
+  const time = world(on)
+  on('agent.spawn', () => ({ model: 'sonnet', agentId: 'a1' }))
+  on('tool.call', () => ({ result: {} }))
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: tokens('claude-sonnet-5-5', 1000, 1000, 10_000, 1000) }
+  })
+  opens(on)
+
+  await open($)
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+  await $.tool.call({ tool: 'Read', file_path: '/repo/src/ClassReservationService.cs', agentId: 'a1' })
+  await $.tool.call({ tool: 'Bash', command: 'dotnet test   --filter RC09\n  --no-build --verbosity quiet --logger trx', agentId: 'a1' })
+  await step($, 'a1', 'claude-sonnet-5-5')
+  await time.settle()
+
+  const lines = await texts($)
+  expect(lines.slice(3, 6)).toEqual(['⠼ general-purpose Sonnet', '0:00', '  ↳ Bash  dotnet test'])
+  expect(lines[6]).toBe('  ▓▓░░░░░░░░░░░░  2 tools · 3k tok · $0.02 est.')
+})
+
+test('a Bash target is the program and one plain word, never the rest of the command', async ($, on) => {
+  const time = world(on)
+  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
+  on('tool.call', () => ({ result: {} }))
+  opens(on)
+  const shown = async () => (await texts($)).find(line => line.startsWith('  ↳'))
+
+  await open($)
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+  await $.tool.call({ tool: 'Bash', command: 'git push https://user:ghp_s3cretT0ken@github.com/o/r.git main', agentId: 'a1' })
+  await time.settle()
+  expect(await shown()).toBe('  ↳ Bash  git push')
+
+  await $.tool.call({ tool: 'Bash', command: 'curl -H "Authorization: Bearer ghp_s3cretT0ken" https://api.example.com', agentId: 'a1' })
+  await time.settle()
+  expect(await shown()).toBe('  ↳ Bash  curl')
+
+  await $.tool.call({ tool: 'Bash', command: 'GITHUB_TOKEN=ghp_s3cretT0ken ./deploy.sh prod', agentId: 'a1' })
+  await time.settle()
+  expect(await shown()).toBe('  ↳ Bash  deploy.sh prod')
+  expect((await texts($)).some(line => line.includes('ghp_'))).toBe(false)
+})
+
+test('with the pane never opened, a lead tool call and a model step pass through and leave $.state untouched', async ($, on) => {
+  const touched: string[] = []
+  on('state.get', (_, e, next) => {
+    touched.push(`get ${e.key}`)
+    return next(e)
+  })
+  on('state.set', (_, e, next) => {
+    touched.push(`set ${e.key}`)
+    return next(e)
+  })
+  const time = world(on)
+  on('tool.call', () => ({ result: { stdout: 'ok' } }))
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: 'hi', toolUses: [], stopReason: 'end_turn', usage: tokens('claude-opus-5-5', 1, 1) }
+  })
+
+  const ran = await $.tool.call({ tool: 'Bash', command: 'ls' })
+  const stepped = await step($, undefined, 'claude-opus-5-5')
+  await time.settle()
+
+  expect(ran).toMatchObject({ result: { stdout: 'ok' } })
+  expect(stepped).toMatchObject({ answer: 'hi', usage: { model: 'claude-opus-5-5' } })
+  expect(touched).toEqual([])
+})
+
+test('extended groups agents into the READ, WRITE and CHECK lanes, with the lead, timeline and events', async ($, on) => {
+  let n = 0
+  const time = world(on)
+  pins(on)
+  on('agent.spawn', (_, e) => ({ model: e.model ?? (e.subagentType.endsWith('locator') ? 'haiku' : 'sonnet'), agentId: `a${++n}` }))
+  on('tool.call', () => ({ result: {} }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000, tokens: 210_000, percent: 21 }, rateLimits: [], cost: { usd: 0.33 } } }))
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
+  })
+  opens(on)
+
+  await open($)
+  await step($, undefined, 'claude-opus-5-5')
+  await $.agent.spawn(spawn('u1', 'starter:locator'))
+  await time.advance(4000)
+  await $.turn.complete(complete('a1', 'answer', tokens('claude-haiku-5-5', 1500, 500), 'Found 3 files.\nsrc/a.cs'))
+  await $.agent.spawn(spawn('u2', 'starter:reader', 'opus'))
+  await $.tool.call({ tool: 'Read', file_path: '/repo/RowLock.cs', agentId: 'a2' })
+  await time.advance(3000)
+  await $.agent.spawn(spawn('u3', 'starter:writer'))
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/TransferService.cs', old_string: 'a', new_string: 'b', agentId: 'a3' })
+  await $.tool.call({ tool: 'Agent', subagent_type: 'starter:writer', description: 'd', prompt: 'p' })
+  await time.advance(5000)
+  await time.settle()
+  expect(await texts($)).toEqual([
+    'SUBAGENTS', '2 running', RULE,
+    '⠹ reader    Opus', '0:08', '  ↳ Read  RowLock.cs', `  ▓${'░'.repeat(13)}  1 tools`,
+    '⠸ writer    Sonnet · high', '0:05', '  ↳ Edit  TransferService.cs', `  ▓${'░'.repeat(13)}  1 tools`,
+    '✓ locator   Haiku', '0:04 · 2k tok · $0.00 est.',
+    RULE, 'session  2k tok   $0.33 est.   lead ctx 21%',
+  ])
+  await extended($)
+
+  expect(await texts($)).toEqual([
+    'SUBAGENTS · extended', '2 running',
+    'LEAD', 'Opus · ctx 21%', '↳ Agent',
+    'READ · in parallel',
+    'locator ─ Haiku', '✓ done 0:04 · 2k tok · $0.00 est.',
+    'reader ─ Opus', '⠸ 0:08 · 1 tools', '↳ Read  RowLock.cs',
+    'WRITE · one at a time',
+    'writer ─ Sonnet · high', '⠹ 0:05 · 1 tools', '↳ Edit  TransferService.cs',
+    'CHECK · fresh context',
+    'none this session',
+    `TIMELINE  0:00 ${'─'.repeat(58)} 0:12`,
+    'locator', 'reader', 'writer',
+    'EVENTS',
+    'lead → locator: task u1',
+    'locator done · 0:04 · 2k tok — Found 3 files.',
+    'lead → reader: task u2',
+    'lead → writer: task u3',
+    'session  2k tok   $0.33 est.   2 running',
+  ])
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await terminal.find({ type: 'Raster', key: 'timeline' })).toBeDefined()
+  await terminal.unmount()
+  const desktop = await texts($, 'desktop')
+  expect(desktop.filter(line => line.includes('▓'))).toEqual([
+    '▓'.repeat(23) + ' '.repeat(47),
+    ' '.repeat(23) + '▓'.repeat(47),
+    ' '.repeat(40) + '▓'.repeat(30),
+  ])
+
+  await $.agent.spawn(spawn('u4', 'general-purpose'))
+  const lines = await texts($)
+  expect(lines.slice(lines.indexOf('none this session') + 1, lines.indexOf('none this session') + 3)).toEqual(['OTHER', 'general-purpose ─ Sonnet'])
+})
+
+test('/subagents extended is kept in the store, and the pane button switches back', async ($, on) => {
+  const stored = new Map<string, unknown>()
+  world(on)
+  on('store.get', (_, e) => ({ value: stored.get(e.key) }))
+  on('store.set', (_, e) => {
+    stored.set(e.key, e.value)
+    return { value: undefined }
+  })
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+
+  const out = await $.command.run({ ...COMMAND, args: 'extended' })
+  expect(out.text).toBe('Subagents pane opened in extended mode.')
+  expect(stored.get('mode')).toBe('extended')
+  expect((await texts($))[0]).toBe('SUBAGENTS · extended')
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'mode' })
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('SUBAGENTS')
+  await ui.unmount()
+  expect(stored.get('mode')).toBe('compact')
+})
+
+test('a later session opens the pane in the mode the store kept', async ($, on) => {
+  mock.store(on, { mode: 'extended' })
+  world(on)
+  on('command.register', () => ({ value: { command: 'subagents' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+
+  expect((await texts($))[0]).toBe('SUBAGENTS · extended')
+})
+
+test('cost shows as an estimate for a priced model and is left out for an unknown one', async ($, on) => {
+  let n = 0
+  world(on)
+  on('agent.spawn', () => ({ model: 'm', agentId: `a${++n}` }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000, percent: 21 }, rateLimits: [], cost: { usd: 0.33 } } }))
+
+  await $.agent.spawn(spawn('u1', 'priced'))
+  await $.agent.spawn(spawn('u2', 'unpriced'))
+  await $.agent.spawn(spawn('u3', 'bedrock'))
+  await $.agent.spawn(spawn('u4', 'vertex'))
+  await $.turn.complete(complete('a1', 'answer', tokens('claude-sonnet-5-5', 1000, 2000, 10_000, 4000)))
+  await $.turn.complete(complete('a2', 'answer', tokens('claude-unknown-9', 1000, 2000, 10_000, 4000)))
+  await $.turn.complete(complete('a3', 'answer', tokens('us.anthropic.claude-sonnet-5-5-v1:0', 1000, 2000, 10_000, 4000)))
+  await $.turn.complete(complete('a4', 'answer', tokens('claude-sonnet-5-5@20261101', 1000, 2000, 10_000, 4000)))
+
+  expect((await texts($)).slice(3)).toEqual([
+    '✓ vertex    m', '0:00 · 7k tok · $0.03 est.',
+    '✓ bedrock   m', '0:00 · 7k tok · $0.03 est.',
+    '✓ unpriced  m', '0:00 · 7k tok',
+    '✓ priced    m', '0:00 · 7k tok · $0.03 est.',
+    RULE, 'session  28k tok   $0.33 est.   lead ctx 21%',
+  ])
+})
+
+test('an explicit model on a role that pins another one is an escalation event', async ($, on) => {
+  let n = 0
+  world(on)
+  pins(on)
+  on('agent.spawn', (_, e) => ({ model: e.model ?? 'sonnet', agentId: `a${++n}` }))
+  opens(on)
+
+  await $.agent.spawn(spawn('u1', 'starter:writer', 'opus'))
+  await $.agent.spawn(spawn('u2', 'starter:writer', 'claude-sonnet-5-5'))
+  await $.agent.spawn(spawn('u3', 'starter:writer'))
+  await $.agent.spawn(spawn('u4', 'general-purpose', 'opus'))
+  await extended($)
+
+  expect((await texts($)).filter(line => line.startsWith('escalation'))).toEqual(['escalation: writer sent again on Opus'])
+})
+
+test('a turn with no usage and an empty answer still closes its row on both modes', async ($, on) => {
+  world(on)
+  on('agent.spawn', () => ({ model: 'mystery', agentId: 'a1' }))
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null }
+  })
+  opens(on)
+
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+  await step($, 'a1', 'mystery')
+  await $.turn.complete(complete('a1', 'answer'))
+
+  expect((await texts($)).slice(3, 5)).toEqual(['✓ general-purpose mystery', '0:00'])
+  await extended($)
+  const lines = await texts($)
+  expect(lines).toContain('✓ done 0:00')
+  expect(lines).toContain('general-purpose done · 0:00')
+})

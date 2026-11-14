@@ -571,3 +571,13 @@ test('the agent log writes one line per Agent call, nothing when off, and surviv
   // A data dir that can't be created (its parent is a file) is a write error: still silent.
   assert.deepEqual(agentLog(call, { CLAUDE_PLUGIN_DATA: join(fileURLToPath(import.meta.url), 'x') }), { status: 0, out: '', lines: [] })
 })
+
+test('hooks.json names the subagents pane module and keeps every command hook', () => {
+  const plugin = join(scripts, '..')
+  const hooks = JSON.parse(readFileSync(join(plugin, 'hooks', 'hooks.json'), 'utf8'))
+  assert.deepEqual(hooks.modules, ['./register.tsx'])
+  assert.ok(existsSync(join(plugin, 'hooks', hooks.modules[0])))
+  for (const event of ['SessionStart', 'PreToolUse', 'Stop']) assert.ok(event in hooks.hooks, event)
+  const manifest = JSON.parse(readFileSync(join(plugin, '.claude-plugin', 'plugin.json'), 'utf8'))
+  assert.ok(existsSync(join(plugin, manifest.types)))
+})

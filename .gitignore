@@ -1,2 +1,3 @@
 node_modules/
 *.starter-backup
+plugins/starter/tsconfig.json
