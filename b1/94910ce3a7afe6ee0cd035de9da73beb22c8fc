@@ -1,0 +1,37 @@
+plugins/starter/rules.md
+  s_fd78d1118bf5f6::t_190b17f35223f7 12
+  s_fd78d1118bf5f6::t_8f320eb6a9bac9 10
+plugins/starter/hooks/register.tsx
+  s_fd78d1118bf5f6::t_ebd8c2791ed511 273-274
+  s_fd78d1118bf5f6::t_cf0b7a7d22af5c 314-317,319,423,442
+  s_fd78d1118bf5f6::t_3d514f41095dca 2,31-43,61,355,361,371,373-374,377,380-390,392-396,399-419,421-422,424-428,432-438,440,443-446,450,457,463,465-469,471-475,477
+plugins/starter/hooks/register.test.tsx
+  s_fd78d1118bf5f6::t_fbf9ecb83f6b89 61-93,97,429
+  s_fd78d1118bf5f6::t_221ef93737027c 174
+  s_fd78d1118bf5f6::t_fb0356e8e95da4 94-96
+  s_fd78d1118bf5f6::t_6169f21fe34417 12
+  s_fd78d1118bf5f6::t_5eb890f4543da0 190
+  s_fd78d1118bf5f6::t_d0d73fb580b59a 149-156
+  s_fd78d1118bf5f6::t_df3e80a5e85954 201-205,209-210,213,411,443
+  s_fd78d1118bf5f6::t_69f9e3baa576af 234,248-249,268,270,278,284,288,292-293,321,332-336,351-357,361-363,365-366,368-369,375,379-410,412-428,430-442,444-480,535-540,544,546,548-549,551-554,557-565,567-578,593,595-596
+README.md
+  s_fd78d1118bf5f6::t_632a5228b6db51 5,31
+plugins/starter/.claude-plugin/plugin.json
+  s_fd78d1118bf5f6::t_4f6089da757090 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b194910ce3a7afe6ee0cd035de9da73beb22c8fc",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
