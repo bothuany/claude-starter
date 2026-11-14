@@ -1,7 +1,7 @@
 {
   "name": "starter",
   "displayName": "claude-starter",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "A small, opinionated user-level setup: ask-before-assuming and verify-before-done rules injected at session start, a review gate, opt-in fan-out of approved plans through a Sonnet workflow with one fresh review, safe worktree cleanup, role agents that fix model and effort (locator, reader, writer, reviewer), diff-walkthrough and visual-plan skills, and a monthly review with optional context7 and obscura MCP servers.",
   "author": { "name": "Batuhan Dikmen", "url": "https://github.com/bothuany" },
   "repository": "https://github.com/bothuany/claude-starter",

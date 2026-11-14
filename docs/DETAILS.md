@@ -75,12 +75,12 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 - **Ask before assuming.** If a request is ambiguous in a way that changes the result, ask, at most 4 questions with a recommended option first. Don't ask what you can look up.
 - **Check the docs, not memory.** Look up a third-party API before writing against it (context7, or the official docs), and say which version you checked.
 - **Web research.** Use obscura first when it's connected; fall back to WebSearch and WebFetch, and say so.
-- **Delegate wide searches** to a subagent that returns conclusions, not file dumps. Suggest fan-out for big approved plans, and start it only when you agree. Read a worker's diff; don't trust its summary.
-- **Verify before you say done.** Run the project's tests, type check and lint, and report failures word for word. Call `code-review` for larger changes and handle every finding with evidence. Say plainly what wasn't verified.
+- **Delegate.** Small fixes (roughly under 30 lines) stay in the main session; larger rewrites and wide reading go to subagents that return conclusions, not file dumps. Independent pieces each get their own writer, in parallel, never on the same file, and a finished piece is reviewed while the others are still being written. In work judged by eye the subagent applies and the main session compares. Suggest fan-out for big approved plans, and start it only when you agree. Read a worker's diff; don't trust its summary.
+- **Verify before you say done.** Run the project's tests, type check and lint, and report failures word for word. Send risky changes (network, permissions, stored data) to an independent `code-review` and handle every finding with evidence; a change that only alters how something looks needs the tests and a side-by-side check. Say plainly what wasn't verified.
 
 ### Review that runs when it matters, and findings that need evidence
 
-The rules ask for `code-review` when a change crosses a size threshold. Opus follows that. Sonnet, in long sessions, often doesn't: once it named "credential handling" as the reason the rule applied, then skipped the review anyway. So the threshold is also enforced by a hook:
+The rules ask for an independent `code-review` of risky code (until 0.9.5: of any change over a size threshold). Opus follows that. Sonnet, in long sessions, often doesn't: once it named "credential handling" as the reason the rule applied, then skipped the review anyway. So a hook also asks, once, when a change crosses a size threshold; when the change isn't risky, Claude says so in one line and stops:
 
 ```mermaid
 flowchart LR

@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews what it changed, and cleans up after itself. Every piece that changes how Claude works was measured before it shipped.
 
-[![version 0.9.5](https://img.shields.io/badge/version-0.9.5-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.9.6](https://img.shields.io/badge/version-0.9.6-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -13,13 +13,13 @@ Works from your next session. Nothing is written to your `CLAUDE.md`. Needs Node
 
 ## How it works
 
-![How claude-starter works. Hooks load the rules at session start, log every subagent call and run the review gate at stop. You shape an idea with /grill, visual-plan and /review-setup. The lead writes no code and picks a role by the type of task: locator (Haiku) finds and lists, reader (Opus, medium) reads and reports, writer (Sonnet, high) changes files and is sent again on Opus when its checks fail twice, reviewer (Opus, high) checks with a fresh context and REVIEW.md. For a task that fits no role the lead picks the model and effort itself. diff-walkthrough, /clean-worktrees and /monthly-review come after.](assets/how-it-works.svg)
+![How claude-starter works. Hooks load the rules at session start, log every subagent call and run the review gate at stop. You shape an idea with /grill, visual-plan and /review-setup. The lead makes small fixes itself and picks a role by the type of task: locator (Haiku) finds and lists, reader (Opus, medium) reads and reports, writer (Sonnet, high) changes files and is sent again on Opus when its checks fail twice, reviewer (Opus, high) checks with a fresh context and REVIEW.md. For a task that fits no role the lead picks the model and effort itself. diff-walkthrough, /clean-worktrees and /monthly-review come after.](assets/how-it-works.svg)
 
-You talk to one session, the lead. It asks what it can't look up, plans, and hands the work out. It never writes code itself, so its context stays free for decisions.
+You talk to one session, the lead. It asks what it can't look up, plans, and hands the work out. It makes small fixes itself and delegates the rest, so its context stays free for decisions.
 
 - **Reading fans out.** A Haiku `locator` finds and lists files, Explore does wide reading, and web research goes through obscura or WebSearch. Only conclusions come back.
-- **Writing stays single.** One writer per repository builds and tests, on Sonnet at high effort; it is re-sent on Opus when its checks fail twice. Parallel agents writing the same code fail at the merge ([ParallACT](https://arxiv.org/abs/2611.00314): 62% → 16% on conflicting tasks).
-- **Checking starts fresh.** A reviewer that didn't write the code reads the diff, and `REVIEW.md` first if your project has one. A clean context catches what the writer can't see ([Cognition, 2026](https://cognition.com/blog/multi-agents-working)).
+- **Writing never overlaps.** Independent pieces each get their own writer, in parallel, on Sonnet at high effort; a writer is re-sent on Opus when its checks fail twice. No two writers own the same file: parallel agents writing the same code fail at the merge ([ParallACT](https://arxiv.org/abs/2611.00314): 62% → 16% on conflicting tasks).
+- **Checking starts fresh.** For risky code (network, permissions, stored data), a reviewer that didn't write it reads the diff, and `REVIEW.md` first if your project has one. A clean context catches what the writer can't see ([Cognition, 2026](https://cognition.com/blog/multi-agents-working)).
 
 ## What's inside
 

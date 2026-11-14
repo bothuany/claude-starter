@@ -60,40 +60,43 @@ async function texts($: Engine, surface: 'terminal' | 'desktop' = 'terminal') {
 
 type Drawn = string | { type: string; props?: Record<string, unknown>; children?: unknown[] }
 const flatText = (n: Drawn): string => (typeof n === 'string' ? n : (n.children ?? []).flat(Infinity).map(c => flatText(c as Drawn)).join(''))
-// A text rendering of the drawn tree: borders, padding, gaps and space-between rows as the terminal lays them out; wrap and truncation are not modelled.
-function layout(n: Drawn, width: number): string[] {
+const kidsOf = (n: Drawn) =>
+  (typeof n === 'string' ? [] : (n.children ?? [])).flat(Infinity).filter((c): c is Drawn => c != null && c !== false) as Drawn[]
+const widthOf = (lines: string[]) => Math.max(0, ...lines.map(l => l.length))
+// A text rendering of the drawn tree: padding, gaps, flexGrow and space-between rows as the terminal lays them out; wrap and truncation are not modelled.
+function layout(n: Drawn, cols: number): string[] {
   if (typeof n === 'string' || n.type === 'Text') return [flatText(n)]
   if (n.type === 'Button') return [`${n.props?.hotkey}: ${n.props?.label}`]
   const p = n.props ?? {}
-  const own = typeof p.width === 'number' ? p.width : width
-  const frame = p.borderStyle ? 1 : 0
-  const pad = Number(p.paddingX ?? 0)
-  const inner = own - 2 * (frame + pad)
-  const kids = (n.children ?? []).flat(Infinity).filter((c): c is Drawn => c != null && c !== false) as Drawn[]
-  const gap = Number(p.gap ?? 0)
+  const left = Number(p.paddingLeft ?? 0)
+  const inner = cols - left
+  const kids = kidsOf(n)
+  const gap = Number(p.gap ?? p.columnGap ?? 0)
   let lines: string[]
   if (p.flexDirection === 'column') {
     lines = kids.flatMap((k, i) => [...(i > 0 ? Array<string>(gap).fill('') : []), ...layout(k, inner)])
   } else {
-    const parts = kids.map(k => layout(k, inner).join(''))
-    const fill = p.justifyContent === 'space-between' && parts.length === 2 ? Math.max(1, inner - parts[0]!.length - parts[1]!.length) : gap
-    lines = [parts.join(' '.repeat(fill))]
+    const grown = kids.findIndex(k => typeof k !== 'string' && Number(k.props?.flexGrow) > 0)
+    const cells = kids.map((k, i) => (i === grown ? [] : layout(k, inner)))
+    const used = cells.reduce((sum, c) => sum + widthOf(c), 0) + gap * Math.max(0, kids.length - 1)
+    const free = Math.max(0, inner - used)
+    if (grown >= 0) cells[grown] = layout(kids[grown]!, free)
+    const widths = cells.map((c, i) => (i === grown ? free : widthOf(c)))
+    const spread = p.justifyContent === 'space-between' && grown < 0 && kids.length === 2 ? free : 0
+    lines = Array.from({ length: Math.max(1, ...cells.map(c => c.length)) }, (_, y) =>
+      cells.map((c, i) => (c[y] ?? '').padEnd(widths[i]!)).join(' '.repeat(gap + spread)),
+    )
   }
-  if (frame) {
-    const side = ' '.repeat(pad)
-    lines = [`╭${'─'.repeat(own - 2)}╮`, ...lines.map(l => `│${side}${l.padEnd(inner)}${side}│`), `╰${'─'.repeat(own - 2)}╯`]
-  }
-  return p.marginTop ? ['', ...lines] : lines
+  return left ? lines.map(l => ' '.repeat(left) + l) : lines
 }
 async function screen($: Engine, surface: 'terminal' | 'desktop' = 'terminal') {
   const ui = await $.ui.mount({ ...PANE, surface })
-  const lines = layout((await ui.drawn()) as Drawn, 80)
+  const lines = layout((await ui.drawn()) as Drawn, 80).map(l => l.trimEnd())
   await ui.unmount()
   return lines
 }
-// The screen without borders, blank rows and the padding that right-aligns a time.
-const content = async ($: Engine) =>
-  (await screen($)).filter(l => l && !/^[╭╰]/.test(l)).map(l => l.replace(/^│ /, '').replace(/ │$/, '').trimEnd().replace(/ {2,}/g, '  '))
+// The screen without blank rows and without the padding that right-aligns a time: any wider run of spaces reads as the 2-space gap.
+const content = async ($: Engine) => (await screen($)).filter(Boolean).map(l => l.replace(/ {2,}/g, '  '))
 
 test('the empty pane says no subagent has run', async ($, on) => {
   on('clock.now', () => ({ value: 1000 }))
@@ -147,13 +150,13 @@ test('rows show the resolved model, the explicit effort else the role pin, and e
   await $.turn.complete(complete('a2', 'error'))
 
   expect(await content($)).toEqual([
-    'SUBAGENTS  m: extended',
-    'general-purpose · resolved  0:00', '⠼ starting', `${EMPTY_BAR}  0 tools`,
-    'writer · Opus high  0:00', '⠴ starting', `${EMPTY_BAR}  0 tools`,
-    'reader · Opus max  0:00', '⠦ starting', `${EMPTY_BAR}  0 tools`,
-    '✗ locator · resolved · error  0:00',
-    '✓ writer · resolved high  0:00',
-    'session 0 tok · 3 running',
+    'SUBAGENTS  3 running  m: extended',
+    '▍ general-purpose  resolved  0:00', '▍ ⠼  starting', `▍ ${EMPTY_BAR}  0 tools`,
+    '▍ writer  Opus · high  0:00', '▍ ⠴  starting', `▍ ${EMPTY_BAR}  0 tools`,
+    '▍ reader  Opus · max  0:00', '▍ ⠦  starting', `▍ ${EMPTY_BAR}  0 tools`,
+    '  ✗  locator  resolved · error  0:00',
+    '  ✓  writer  resolved · high  0:00',
+    'session 0 tok  3 running',
   ])
 })
 
@@ -171,7 +174,7 @@ test('a failed definition read keeps the other pins and is read again on the nex
   await $.agent.spawn(spawn('u1', 'starter:writer'))
   await $.agent.spawn(spawn('u2', 'starter:reader'))
 
-  expect((await content($)).filter(line => / · m /.test(line))).toEqual(['writer · m high  0:00', 'reader · m medium  0:00'])
+  expect((await content($)).filter(line => / m · /.test(line))).toEqual(['▍ writer  m · high  0:00', '▍ reader  m · medium  0:00'])
 })
 
 test('a turn.complete that arrives before the spawn settles still closes the row', async ($, on) => {
@@ -187,7 +190,7 @@ test('a turn.complete that arrives before the spawn settles still closes the row
   await time.advance(10)
   await spawning
 
-  expect(await content($)).toEqual(['SUBAGENTS  m: extended', '✓ general-purpose · m  0:00', 'session 0 tok · 0 running'])
+  expect(await content($)).toEqual(['SUBAGENTS  0 running  m: extended', '  ✓  general-purpose  m  0:00', 'session 0 tok  0 running'])
 })
 
 test('a resumed subagent reuses its row, and a denied resume leaves it finished', async ($, on) => {
@@ -199,14 +202,14 @@ test('a resumed subagent reuses its row, and a denied resume leaves it finished'
   await time.advance(5000)
   await $.agent.spawn({ ...spawn('u2', 'general-purpose'), resume: { agentId: 'a1' } })
   expect(await content($)).toEqual([
-    'SUBAGENTS  m: extended',
-    'general-purpose · m  0:00', '⠼ starting', `${EMPTY_BAR}  0 tools`,
-    'session 0 tok · 1 running',
+    'SUBAGENTS  1 running  m: extended',
+    '▍ general-purpose  m  0:00', '▍ ⠼  starting', `▍ ${EMPTY_BAR}  0 tools`,
+    'session 0 tok  1 running',
   ])
 
   await time.advance(2000)
   await $.turn.complete(complete('a1', 'answer'))
-  const finished = ['SUBAGENTS  m: extended', '✓ general-purpose · m  0:02', 'session 0 tok · 0 running']
+  const finished = ['SUBAGENTS  0 running  m: extended', '  ✓  general-purpose  m  0:02', 'session 0 tok  0 running']
   expect(await content($)).toEqual(finished)
 
   await $.agent.spawn({ ...spawn('u3', 'general-purpose'), prompt: 'no', resume: { agentId: 'a1' } }).catch(() => undefined)
@@ -231,7 +234,7 @@ test('at most 20 subagents show as running, the oldest dropped first', async ($,
 
   for (let i = 1; i <= 22; i++) await $.agent.spawn(spawn(`u${i}`, `t${i}`))
 
-  const roles = (await content($)).filter(line => / · m  0:00$/.test(line)).map(line => line.split(' ')[0])
+  const roles = (await content($)).flatMap(line => /^▍ \S+  m  0:00$/.test(line) ? [line.split(' ')[1]] : [])
   expect(roles).toEqual(Array.from({ length: 20 }, (_, i) => `t${i + 3}`))
 })
 
@@ -246,8 +249,8 @@ test('only the last 10 finished subagents stay in Recent', async ($, on) => {
   }
 
   const lines = await content($)
-  expect(lines[0]).toBe('SUBAGENTS  m: extended')
-  const roles = lines.filter(line => line.startsWith('✓')).map(line => line.slice(2).split(' ')[0])
+  expect(lines[0]).toBe('SUBAGENTS  0 running  m: extended')
+  const roles = lines.flatMap(line => /^ {2}✓ {2}(\S+)/.exec(line)?.[1] ?? [])
   expect(roles).toEqual(Array.from({ length: 10 }, (_, i) => `t${12 - i}`))
 })
 
@@ -267,7 +270,7 @@ test('compact shows the current tool and its target for a running agent, and its
   await step($, 'a1', 'claude-sonnet-5-5')
   await time.advance(2000)
 
-  expect((await content($)).slice(1, 4)).toEqual(['general-purpose · Sonnet  0:02', '⠹ Bash  dotnet test', '██████████  2 tools · 3k tok · $0.02 est.'])
+  expect((await content($)).slice(1, 4)).toEqual(['▍ general-purpose  Sonnet  0:02', '▍ ⠹  Bash  dotnet test', '▍ ██████████  2 tools · 3k tok · $0.02 est.'])
 })
 
 test('a Bash target is the program and one plain word, never the rest of the command', async ($, on) => {
@@ -275,7 +278,7 @@ test('a Bash target is the program and one plain word, never the rest of the com
   on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
   on('tool.call', () => ({ result: {} }))
   opens(on)
-  const shown = async () => (await content($)).find(line => /^. Bash/.test(line))
+  const shown = async () => (await content($)).find(line => /^▍ \S {2}Bash/.test(line))
 
   await open($)
   await $.agent.spawn(spawn('u1', 'general-purpose'))
@@ -350,34 +353,35 @@ test('every agent is a card in both modes, a finished one a single dim line, and
   await time.settle()
 
   expect(await content($)).toEqual([
-    'SUBAGENTS  m: extended',
-    'reader · Opus  0:08', '⠹ Read  RowLock.cs', '██████████  1 tools',
-    'writer · Sonnet high  0:05', '⠸ Edit  TransferService.cs', '██████▎░░░  1 tools',
-    '✓ locator · Haiku  0:04 · 2k tok · $0.00 est.',
-    'session 2k tok · $0.33 est. · lead ctx 21% · 2 running',
+    'SUBAGENTS  2 running  m: extended',
+    '▍ reader  Opus  0:08', '▍ ⠹  Read  RowLock.cs', '▍ ██████████  1 tools',
+    '▍ writer  Sonnet · high  0:05', '▍ ⠸  Edit  TransferService.cs', '▍ ██████▎░░░  1 tools',
+    '  ✓  locator  Haiku  0:04 · 2k tok · $0.00 est.',
+    'session 2k tok  $0.33 est.  lead ctx 21%  2 running',
   ])
   await extended($)
 
   expect(await content($)).toEqual([
-    'SUBAGENTS · extended  m: compact',
-    'lead · Opus  ctx 21%', 'Agent',
-    'READ · in parallel',
-    'reader · Opus  0:08', '⠹ Read  RowLock.cs', '██████████  1 tools',
-    '✓ locator · Haiku  0:04 · 2k tok · $0.00 est.',
-    'WRITE · one at a time',
-    'writer · Sonnet high  0:05', '⠹ Edit  TransferService.cs', '██████▎░░░  1 tools',
-    'CHECK · fresh context', 'none this session',
+    'SUBAGENTS  2 running  m: compact',
+    'LEAD',
+    '▍ Opus  ctx 21%', '▍ Agent',
+    'READ  in parallel',
+    '▍ reader  Opus  0:08', '▍ ⠹  Read  RowLock.cs', '▍ ██████████  1 tools',
+    '  ✓  locator  Haiku  0:04 · 2k tok · $0.00 est.',
+    'WRITE  own files each',
+    '▍ writer  Sonnet · high  0:05', '▍ ⠹  Edit  TransferService.cs', '▍ ██████▎░░░  1 tools',
+    'CHECK  fresh context', '  none this session',
     'EVENTS',
-    'lead → locator: task u1',
-    'locator done · 0:04 · 2k tok — Found 3 files.',
-    'lead → reader: task u2',
-    'lead → writer: task u3',
-    'session 2k tok · $0.33 est. · 2 running',
+    '  lead → locator: task u1',
+    '  locator done · 0:04 · 2k tok — Found 3 files.',
+    '  lead → reader: task u2',
+    '  lead → writer: task u3',
+    'session 2k tok  $0.33 est.  2 running',
   ])
 
   await $.agent.spawn(spawn('u4', 'general-purpose'))
   const other = await content($)
-  expect(other.slice(other.indexOf('none this session') + 1, other.indexOf('none this session') + 3)).toEqual(['OTHER', 'general-purpose · Sonnet  0:00'])
+  expect(other.slice(other.indexOf('  none this session') + 1, other.indexOf('  none this session') + 3)).toEqual(['OTHER', '▍ general-purpose  Sonnet  0:00'])
 })
 
 test('the duration bar is exactly 10 cells and the longest running agent fills it', async ($, on) => {
@@ -392,24 +396,25 @@ test('the duration bar is exactly 10 cells and the longest running agent fills i
 
   for (const mode of ['compact', 'extended'] as const) {
     await $.command.run({ ...COMMAND, args: mode })
-    const bars = (await content($)).filter(line => /^[█▏▎▍▌▋▊▉░]+ {2}/.test(line)).map(line => line.split('  ')[0]!)
+    const bars = (await content($)).flatMap(line => /^▍ ([█▏▎▍▌▋▊▉░]+) {2}/.exec(line)?.[1] ?? [])
     expect(bars.map(b => [...b].length)).toEqual([10, 10, 10])
     expect(bars).toEqual(['██████████', '█████░░░░░', '██▌░░░░░░░'])
   }
 })
 
-test('a finished agent is one line without a border, in both modes', async ($, on) => {
+test('a finished agent is one line without a rail, in both modes', async ($, on) => {
   const time = lanes(on)
   await $.agent.spawn(spawn('u1', 'starter:locator'))
   await time.advance(4000)
   await $.turn.complete(complete('a1', 'answer', tokens('claude-haiku-5-5', 1500, 500)))
 
-  for (const [mode, cards] of [['compact', 0], ['extended', 1]] as const) {
+  // Extended draws the lead's own card, which is the one rail left.
+  for (const [mode, rails] of [['compact', 0], ['extended', 1]] as const) {
     await $.command.run({ ...COMMAND, args: mode })
     const lines = await screen($)
-    expect(lines.filter(line => line.startsWith('╭'))).toHaveLength(cards)
-    expect(lines.filter(line => line.startsWith('✓'))).toHaveLength(1)
-    expect(lines.find(line => line.startsWith('✓'))).toMatch(/^✓ locator · Haiku +0:04 · 2k tok · \$0\.00 est\.$/)
+    expect(lines.filter(line => line.includes('▍'))).toHaveLength(rails)
+    expect(lines.filter(line => line.includes('✓'))).toHaveLength(1)
+    expect(lines.find(line => line.includes('✓'))).toMatch(/^ {2}✓ {2}locator {2}Haiku +0:04 · 2k tok · \$0\.00 est\.$/)
   }
 })
 
@@ -426,19 +431,20 @@ test('extended has no timeline section', async ($, on) => {
   await ui.unmount()
 })
 
-test('cards are one blank row apart in extended and touch in compact', async ($, on) => {
+test('cards are one blank row apart, in both modes', async ($, on) => {
   const time = lanes(on)
   await $.agent.spawn(spawn('u1', 'starter:reader'))
   await $.agent.spawn(spawn('u2', 'starter:reader'))
   await time.advance(1000)
-  const belowCards = async () => {
-    const lines = await screen($)
-    return lines.flatMap((line, i) => (line.startsWith('╰') ? [lines[i + 1]?.slice(0, 1)] : []))
-  }
 
-  expect((await belowCards())[0]).toBe('╭')
-  await extended($)
-  expect((await belowCards())[1]).toBe('')
+  for (const mode of ['compact', 'extended'] as const) {
+    await $.command.run({ ...COMMAND, args: mode })
+    const lines = await screen($)
+    const firsts = lines.flatMap((line, i) => (line.startsWith('▍ reader') ? [i] : []))
+    expect(firsts).toHaveLength(2)
+    expect(firsts[1]! - firsts[0]!).toBe(4)
+    expect(lines[firsts[0]! + 3]).toBe('')
+  }
 })
 
 test('a negative elapsed time draws an empty bar and 0:00 instead of throwing', async ($, on) => {
@@ -450,7 +456,7 @@ test('a negative elapsed time draws an empty bar and 0:00 instead of throwing', 
   await $.agent.spawn(spawn('u1', 'general-purpose'))
   t = 2000
 
-  expect((await content($)).slice(1, 4)).toEqual(['general-purpose · m  0:00', '⠇ starting', `${EMPTY_BAR}  0 tools`])
+  expect((await content($)).slice(1, 4)).toEqual(['▍ general-purpose  m  0:00', '▍ ⠇  starting', `▍ ${EMPTY_BAR}  0 tools`])
 })
 
 test('a waiting card has no bar', async ($, on) => {
@@ -462,7 +468,7 @@ test('a waiting card has no bar', async ($, on) => {
 
   const spawning = $.agent.spawn(spawn('u1', 'general-purpose'))
   await time.settle()
-  expect(await content($)).toEqual(['SUBAGENTS  m: extended', 'general-purpose · …  0:00', '· waiting', 'session 0 tok · 1 running'])
+  expect(await content($)).toEqual(['SUBAGENTS  1 running  m: extended', '▍ general-purpose  …  0:00', '▍ waiting', 'session 0 tok  1 running'])
 
   await time.advance(10)
   await spawning
@@ -476,7 +482,8 @@ test("a failed agent's glyph keeps its error colour while the line stays dim", a
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: '✗' }))?.props).toEqual({ color: 'error' })
-  expect((await ui.find({ type: 'Text', text: / general-purpose · m · error/ }))?.props).toMatchObject({ dimColor: true })
+  expect((await ui.find({ type: 'Text', text: 'general-purpose' }))?.props).toMatchObject({ dimColor: true })
+  expect((await ui.find({ type: 'Text', text: 'm · error' }))?.props).toMatchObject({ dimColor: true })
   await ui.unmount()
 })
 
@@ -495,11 +502,12 @@ test('/subagents extended is kept in the store, and the pane button switches bac
   const out = await $.command.run({ ...COMMAND, args: 'extended' })
   expect(out.text).toBe('Subagents pane opened in extended mode.')
   expect(stored.get('mode')).toBe('extended')
-  expect((await texts($))[0]).toBe('SUBAGENTS · extended')
+  expect(await texts($)).toContain('LEAD')
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'mode' })
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('SUBAGENTS')
+  expect(await ui.find({ type: 'Text', text: 'LEAD' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'SUBAGENTS' })).toBeDefined()
   await ui.unmount()
   expect(stored.get('mode')).toBe('compact')
 })
@@ -514,7 +522,7 @@ test('a later session opens the pane in the mode the store kept', async ($, on) 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await $.agent.spawn(spawn('u1', 'general-purpose'))
 
-  expect((await texts($))[0]).toBe('SUBAGENTS · extended')
+  expect(await texts($)).toContain('LEAD')
 })
 
 test('cost shows as an estimate for a priced model and is left out for an unknown one', async ($, on) => {
@@ -533,11 +541,11 @@ test('cost shows as an estimate for a priced model and is left out for an unknow
   await $.turn.complete(complete('a4', 'answer', tokens('claude-sonnet-5-5@20261101', 1000, 2000, 10_000, 4000)))
 
   expect((await content($)).slice(1)).toEqual([
-    '✓ vertex · m  0:00 · 7k tok · $0.03 est.',
-    '✓ bedrock · m  0:00 · 7k tok · $0.03 est.',
-    '✓ unpriced · m  0:00 · 7k tok',
-    '✓ priced · m  0:00 · 7k tok · $0.03 est.',
-    'session 28k tok · $0.33 est. · lead ctx 21% · 0 running',
+    '  ✓  vertex  m  0:00 · 7k tok · $0.03 est.',
+    '  ✓  bedrock  m  0:00 · 7k tok · $0.03 est.',
+    '  ✓  unpriced  m  0:00 · 7k tok',
+    '  ✓  priced  m  0:00 · 7k tok · $0.03 est.',
+    'session 28k tok  $0.33 est.  lead ctx 21%  0 running',
   ])
 })
 
@@ -590,8 +598,92 @@ test('a turn with no usage and an empty answer still closes its row on both mode
   await step($, 'a1', 'mystery')
   await $.turn.complete(complete('a1', 'answer'))
 
-  expect((await content($))[1]).toBe('✓ general-purpose · mystery  0:00')
+  expect((await content($))[1]).toBe('  ✓  general-purpose  mystery  0:00')
   await extended($)
-  expect(await content($)).toContain('✓ general-purpose · mystery  0:00')
+  expect(await content($)).toContain('  ✓  general-purpose  mystery  0:00')
   expect(await texts($)).toContain('general-purpose done · 0:00')
+})
+
+// A running reader, a waiting writer (spawned, no agentId yet), a finished ok locator and a failed reviewer; the lead has run a tool.
+async function drawnScene($: Engine, on: On) {
+  const time = world(on)
+  on('agent.spawn', async (_, e) => {
+    if (e.tool_use_id === 'u4') await time.sleep(10)
+    return { model: 'sonnet', agentId: `a${e.tool_use_id.slice(1)}` }
+  })
+  on('tool.call', () => ({ result: {} }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000, tokens: 210_000, percent: 21 }, rateLimits: [], cost: { usd: 0.33 } } }))
+  opens(on)
+  await open($)
+  await $.tool.call({ tool: 'Read', file_path: '/repo/lead.cs' })
+  await $.agent.spawn(spawn('u1', 'starter:reader'))
+  await $.tool.call({ tool: 'Read', file_path: '/repo/RowLock.cs', agentId: 'a1' })
+  await $.agent.spawn(spawn('u2', 'starter:locator'))
+  await $.agent.spawn(spawn('u3', 'starter:reviewer'))
+  await $.turn.complete(complete('a2', 'answer'))
+  await $.turn.complete(complete('a3', 'error'))
+  const spawning = $.agent.spawn(spawn('u4', 'starter:writer'))
+  await time.settle()
+  return async () => {
+    await time.advance(10)
+    await spawning
+  }
+}
+const SURFACES = ['terminal', 'desktop'] as const
+const MODES = ['compact', 'extended'] as const
+
+test('no drawn text starts or ends with whitespace or holds two spaces in a row', async ($, on) => {
+  const done = await drawnScene($, on)
+
+  for (const mode of MODES) {
+    await $.command.run({ ...COMMAND, args: mode })
+    for (const surface of SURFACES) {
+      const found = await texts($, surface)
+      expect(found).toContain('waiting')
+      expect(found.filter(t => /^\s|\s$|\s{2}/.test(t))).toEqual([])
+    }
+  }
+  await done()
+})
+
+test('no box in the drawn tree has a borderStyle', async ($, on) => {
+  const done = await drawnScene($, on)
+  const bordered = (n: Drawn): boolean => typeof n !== 'string' && (n.props?.borderStyle !== undefined || kidsOf(n).some(bordered))
+
+  for (const mode of MODES) {
+    await $.command.run({ ...COMMAND, args: mode })
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      expect(bordered((await ui.drawn()) as Drawn)).toBe(false)
+      await ui.unmount()
+    }
+  }
+  await done()
+})
+
+test("each card's rail has one ▍ per body line, and every body line is one row", async ($, on) => {
+  const done = await drawnScene($, on)
+  // A card is a row of a rail column of ▍ and a body column.
+  const railed = (n: Drawn): number[][] => {
+    const [rail, body] = kidsOf(n)
+    const isCard = rail && body && typeof rail !== 'string' && rail.type === 'Box' && kidsOf(rail).length > 0 && kidsOf(rail).every(k => flatText(k) === '▍')
+    const own = isCard ? [[kidsOf(rail).length, kidsOf(body).length, ...kidsOf(body).map(k => layout(k, 80).length)]] : []
+    return [...own, ...kidsOf(n).flatMap(railed)]
+  }
+  const expected = { compact: [3, 2], extended: [2, 3, 2] }
+
+  for (const mode of MODES) {
+    await $.command.run({ ...COMMAND, args: mode })
+    for (const surface of SURFACES) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      const cards = railed((await ui.drawn()) as Drawn)
+      await ui.unmount()
+      expect(cards.map(([rail]) => rail)).toEqual(expected[mode])
+      for (const [rail, body, ...rows] of cards) {
+        expect(body).toBe(rail)
+        expect(rows).toEqual(Array(rail).fill(1))
+      }
+    }
+  }
+  await done()
 })

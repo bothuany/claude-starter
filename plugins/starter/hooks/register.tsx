@@ -19,7 +19,7 @@ const PRICES: Record<string, { input: number; output: number; cacheRead: number;
 const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 const LANES = [
   { name: 'READ', note: 'in parallel', roles: ['locator', 'reader', 'Explore', 'Plan'] },
-  { name: 'WRITE', note: 'one at a time', roles: ['writer'] },
+  { name: 'WRITE', note: 'own files each', roles: ['writer'] },
   { name: 'CHECK', note: 'fresh context', roles: ['reviewer'] },
 ] as const
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
@@ -58,7 +58,7 @@ const family = (model?: string) => {
   const name = model && /opus|sonnet|haiku|fable|mythos/i.exec(model)?.[0]
   return name ? name[0]!.toUpperCase() + name.slice(1).toLowerCase() : model
 }
-const label = (r: Row) => (r.effort ? `${family(r.model)} ${r.effort}` : (family(r.model) ?? r.model))
+const label = (r: Row) => (r.effort ? `${family(r.model)} · ${r.effort}` : (family(r.model) ?? r.model))
 const plain = (u: Usage): Usage => ({
   input_tokens: u.input_tokens ?? 0,
   output_tokens: u.output_tokens ?? 0,
@@ -111,7 +111,6 @@ const program = (command: string) => {
   const sub = words[1]
   return sub && /^[a-z][a-z-]{0,19}$/.test(sub) ? `${name} ${sub}` : name
 }
-const activity = (tool: string, target?: string) => (target ? `${tool}  ${target}` : tool)
 const laneOf = (r: Row) =>
   r.edited && r.role !== 'reviewer'
     ? 'WRITE'
@@ -356,7 +355,6 @@ export const register: Register = on => {
     const mode = await read($, modeAtom)
     const now = await $.clock.now()
     const session = await $.session.usage().catch(() => undefined)
-    const cols = Math.max(20, e.props.bodyColumns)
     const running = list.filter(isRunning)
     const longest = Math.max(1, ...running.map(r => now - r.startedAt))
     const other: Mode = mode === 'compact' ? 'extended' : 'compact'
@@ -367,83 +365,132 @@ export const register: Register = on => {
     }
     const figures = (r: Row) => [clock((r.endedAt ?? now) - r.startedAt), stats(r)].filter(Boolean).join(' · ')
     const pct = session?.context.percent
-    const sessionLine = [
+    const sessionParts = [
       `session ${short(spent + running.reduce((n, r) => n + fresh(r.live), 0))} tok`,
       session?.cost && `$${session.cost.usd.toFixed(2)} est.`,
       mode === 'compact' && pct !== undefined && `lead ctx ${pct}%`,
       `${running.length} running`,
-    ]
-      .filter(Boolean)
-      .join(' · ')
+    ].filter(Boolean)
+
+    // All horizontal spacing is `gap`. A row has one shrinkable child at most; every other child keeps its size.
+    const keep = (child: RenderChildren) => <Box flexShrink={0}>{child}</Box>
+    const grow = (child: RenderChildren) => (
+      <Box flexShrink={1} flexGrow={1} minWidth={0}>
+        {child}
+      </Box>
+    )
     const head = (
-      <Box justifyContent="space-between">
-        <Text weight="bold">{mode === 'compact' ? 'SUBAGENTS' : 'SUBAGENTS · extended'}</Text>
-        <Button key="mode" hotkey="m" plain dimColor onPress={() => setMode($, other)}>
-          {other}
-        </Button>
-      </Box>
-    )
-    const title = (name: string, detail: string | undefined, right: string | undefined) => (
-      <Box justifyContent="space-between" gap={1}>
-        <Box flexShrink={1}>
-          <Text weight="bold" wrap="truncate-end">{name}</Text>
-          {detail ? <Text dimColor wrap="truncate-end">{` · ${detail}`}</Text> : undefined}
+      <Box justifyContent="space-between" gap={2}>
+        {keep(<Text weight="bold">SUBAGENTS</Text>)}
+        <Box flexShrink={0} gap={2}>
+          <Text dimColor tabular>{`${running.length} running`}</Text>
+          <Button key="mode" hotkey="m" plain dimColor onPress={() => setMode($, other)}>
+            {other}
+          </Button>
         </Box>
-        {right ? (
-          <Box flexShrink={0}>
-            <Text dimColor>{right}</Text>
-          </Box>
-        ) : undefined}
       </Box>
     )
-    const card = (color: string, ...lines: RenderChildren[]) => (
-      <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} width={cols}>
-        {lines}
+    const section = (name: string, note: string | undefined, content: RenderChildren) => (
+      <Box flexDirection="column">
+        <Box gap={2}>
+          {keep(<Text weight="semibold" size="caption">{name}</Text>)}
+          {note ? keep(<Text dimColor size="caption">{note}</Text>) : undefined}
+        </Box>
+        {content}
       </Box>
     )
-    const runningCard = (r: Row, i: number) =>
-      card(
-        r.agentId ? 'claude' : 'subtle',
-        title(r.role, label(r), clock(now - r.startedAt)),
-        r.agentId ? (
-          <Box gap={1}>
-            <Text color="claude">{spin(i)}</Text>
-            <Text wrap="truncate-end">{r.tool ? activity(r.tool, r.target) : 'starting'}</Text>
-          </Box>
-        ) : (
-          <Text dimColor>· waiting</Text>
-        ),
-        r.agentId ? <Text wrap="truncate-end">{`${bar(now - r.startedAt, longest)}  ${stats(r)}`}</Text> : undefined,
-      )
-    const finishedLine = (r: Row) => {
-      const ok = r.outcome === 'done'
+    // The rail has one `▍` per body line, so every body line stays one row high.
+    const card = (color: 'claude' | 'subtle', ...lines: RenderChildren[]) => {
+      const body = lines.filter(Boolean)
       return (
-        <Box justifyContent="space-between" gap={1}>
-          <Box flexShrink={1}>
-            <Text color={ok ? 'success' : 'error'}>{ok ? '✓' : '✗'}</Text>
-            <Text dimColor wrap="truncate-end">{` ${r.role} · ${label(r)}${ok ? '' : ` · ${r.outcome}`}`}</Text>
+        <Box gap={1}>
+          <Box flexDirection="column" flexShrink={0}>
+            {body.map(() => (
+              <Text mono color={color}>▍</Text>
+            ))}
           </Box>
-          <Box flexShrink={0}>
-            <Text dimColor>{figures(r)}</Text>
+          <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+            {body}
           </Box>
         </Box>
       )
     }
-    const finished = (members: Row[]) => members.filter(r => !isRunning(r)).reverse().map(finishedLine)
-    const cards = (members: Row[], gap: number) => (
-      <Box flexDirection="column" gap={gap}>
-        {members.filter(isRunning).map(runningCard)}
+    const runningCard = (r: Row, i: number) =>
+      card(
+        r.agentId ? 'claude' : 'subtle',
+        <Box gap={2}>
+          {keep(<Text weight="bold">{r.role}</Text>)}
+          {grow(<Text dimColor wrap="truncate-end">{label(r)}</Text>)}
+          {keep(<Text dimColor tabular>{clock(now - r.startedAt)}</Text>)}
+        </Box>,
+        r.agentId ? (
+          <Box gap={2}>
+            {keep(<Text color="claude" mono>{spin(i)}</Text>)}
+            {keep(<Text>{r.tool ?? 'starting'}</Text>)}
+            {r.tool && r.target ? grow(<Text dimColor wrap="truncate-end">{r.target}</Text>) : undefined}
+          </Box>
+        ) : (
+          <Text dimColor>waiting</Text>
+        ),
+        r.agentId ? (
+          <Box gap={2}>
+            {keep(<Text mono color="claude">{bar(now - r.startedAt, longest)}</Text>)}
+            {grow(<Text dimColor wrap="truncate-end">{stats(r)}</Text>)}
+          </Box>
+        ) : undefined,
+      )
+    const leadCard = card(
+      'claude',
+      <Box gap={2}>
+        {keep(<Text weight="bold">{lead.model ? family(lead.model) : 'lead'}</Text>)}
+        <Box flexShrink={1} flexGrow={1} minWidth={0} />
+        {pct !== undefined ? keep(<Text dimColor tabular>{`ctx ${pct}%`}</Text>) : undefined}
+      </Box>,
+      lead.tool ? (
+        <Box gap={2}>
+          {keep(<Text>{lead.tool}</Text>)}
+          {lead.target ? grow(<Text dimColor wrap="truncate-end">{lead.target}</Text>) : undefined}
+        </Box>
+      ) : undefined,
+    )
+    const finishedLine = (r: Row) => {
+      const ok = r.outcome === 'done'
+      return (
+        <Box paddingLeft={2} gap={2}>
+          {keep(<Text color={ok ? 'success' : 'error'}>{ok ? '✓' : '✗'}</Text>)}
+          {keep(<Text dimColor>{r.role}</Text>)}
+          {grow(<Text dimColor wrap="truncate-end">{ok ? label(r) : `${label(r)} · ${r.outcome}`}</Text>)}
+          {keep(<Text dimColor tabular>{figures(r)}</Text>)}
+        </Box>
+      )
+    }
+    const cards = (members: Row[]) => {
+      const live = members.filter(isRunning)
+      return live.length > 0 ? (
+        <Box flexDirection="column" gap={1}>
+          {live.map(runningCard)}
+        </Box>
+      ) : undefined
+    }
+    const finished = (members: Row[]) => {
+      const done = members.filter(r => !isRunning(r)).reverse()
+      return done.length > 0 ? <Box flexDirection="column">{done.map(finishedLine)}</Box> : undefined
+    }
+    const footer = (
+      <Box flexWrap="wrap" columnGap={2}>
+        {sessionParts.map(part => (
+          <Text dimColor size="caption">{part}</Text>
+        ))}
       </Box>
     )
-    const sessionText = <Text dimColor wrap="truncate-end">{sessionLine}</Text>
 
     if (mode === 'compact') {
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" gap={1}>
           {head}
-          {cards(list, 0)}
+          {cards(list)}
           {finished(list)}
-          <Box marginTop={1}>{sessionText}</Box>
+          {footer}
         </Box>
       )
     }
@@ -451,30 +498,37 @@ export const register: Register = on => {
     const lanes = [...LANES, { name: 'OTHER', note: '' }].map(lane => {
       const members = list.filter(r => laneOf(r) === lane.name)
       if (members.length === 0 && lane.name === 'OTHER') return undefined
-      return (
-        <Box flexDirection="column">
-          <Text dimColor>{lane.note ? `${lane.name} · ${lane.note}` : lane.name}</Text>
-          {members.length > 0 ? [cards(members, 1), ...finished(members)] : <Text dimColor>none this session</Text>}
-        </Box>
+      return section(
+        lane.name,
+        lane.note,
+        members.length > 0 ? (
+          <Box flexDirection="column" gap={1}>
+            {cards(members)}
+            {finished(members)}
+          </Box>
+        ) : (
+          <Box paddingLeft={2}>
+            <Text dimColor>none this session</Text>
+          </Box>
+        ),
       )
     })
 
     return (
       <Box flexDirection="column" gap={1}>
         {head}
-        {card(
-          'claude',
-          title('lead', lead.model && family(lead.model), pct !== undefined ? `ctx ${pct}%` : undefined),
-          lead.tool ? <Text wrap="truncate-end">{activity(lead.tool, lead.target)}</Text> : undefined,
-        )}
+        {section('LEAD', undefined, leadCard)}
         {lanes}
-        <Box flexDirection="column">
-          <Text dimColor>EVENTS</Text>
-          {events.map(line => (
-            <Text dimColor wrap="truncate-end">{line}</Text>
-          ))}
-        </Box>
-        {sessionText}
+        {section(
+          'EVENTS',
+          undefined,
+          events.map(line => (
+            <Box paddingLeft={2}>
+              <Text dimColor size="caption" wrap="truncate-end">{line}</Text>
+            </Box>
+          )),
+        )}
+        {footer}
       </Box>
     )
   })
