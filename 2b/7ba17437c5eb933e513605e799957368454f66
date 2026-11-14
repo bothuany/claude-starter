@@ -1,0 +1,42 @@
+plugins/starter/scripts/setup-track.mjs
+  s_fd78d1118bf5f6::t_827b9b5c368a99 1-14
+  s_fd78d1118bf5f6::t_11115c46eda49d 15-20
+plugins/starter/scripts/session-check.mjs
+  s_fd78d1118bf5f6::t_4cced8c3c7971d 46,55
+  s_fd78d1118bf5f6::t_d886300fc9ab47 7
+  s_fd78d1118bf5f6::t_f465215dd175ca 47-54,58
+  s_fd78d1118bf5f6::t_4aade3a0aa3035 8,25-30,45,56-57,59-61,67-73
+plugins/starter/hooks/hooks.json
+  s_fd78d1118bf5f6::t_c9efa7990168f5 49,51-53,56-70
+  s_fd78d1118bf5f6::t_1ec59c8dffa08b 48,50,54-55
+plugins/starter/scripts/project-setup.mjs
+  s_fd78d1118bf5f6::t_acd08a0668386a 1,7,9-12,15-16,20,24,32-34,36,38-39,46-47,49,53,58,60,62,69,75,78-81,84-89,92,94,96-100,104-106,109,115-121,124-125,130
+  s_fd78d1118bf5f6::t_a01123de25baf8 2-6,8,13-14,17-19,21-23,25-31,35,37,40-45,48,50-52,54-57,59,61,63-68,70-74,76-77,82-83,90-91,93,95,101-103,107-108,110-114,122-123,126-129
+  s_fd78d1118bf5f6::t_2d1a7d2b0edb68 131-136
+README.md
+  s_fd78d1118bf5f6::t_30506cad9b0525 5,39
+plugins/starter/.claude-plugin/plugin.json
+  s_fd78d1118bf5f6::t_b02a85163eee4a 4
+plugins/starter/scripts/setup.mjs
+  s_fd78d1118bf5f6::t_0012bbdc5cfc15 9,22,125,139,268-281,283
+plugins/starter/skills/setup/SKILL.md
+  s_fd78d1118bf5f6::t_0863dbacaa072d 3,5,10-13,16
+test/scripts.test.mjs
+  s_fd78d1118bf5f6::t_62bfc1f752b990 580,584-844
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2b7ba17437c5eb933e513605e799957368454f66",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
