@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, Timer } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-code'
 
 import type { Feed, Mode, Row, Usage } from '../types'
 
@@ -28,6 +28,19 @@ const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
+const BAR = 10
+const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
+const bar = (ms: number, longest: number) => {
+  const eighths = Math.round((Math.min(Math.max(0, ms), longest) / longest) * BAR * 8)
+  const full = Math.min(BAR, Math.max(0, Math.floor(eighths / 8)))
+  return ('█'.repeat(full) + (EIGHTHS[eighths % 8] ?? '')).padEnd(BAR, '░')
+}
+const MODELS = ['haiku', 'sonnet', 'opus']
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+const higher = (order: string[], value?: string, pinned?: string) => {
+  const [a, b] = [value, pinned].map(v => order.indexOf(v?.toLowerCase() ?? ''))
+  return a! >= 0 && b! >= 0 && a! > b!
+}
 const isRunning = (r: Row) => r.endedAt === undefined
 const keepRecent = (list: Row[]) => {
   const finished = list.filter(r => !isRunning(r)).sort((a, b) => a.endedAt! - b.endedAt!).slice(-10)
@@ -45,7 +58,7 @@ const family = (model?: string) => {
   const name = model && /opus|sonnet|haiku|fable|mythos/i.exec(model)?.[0]
   return name ? name[0]!.toUpperCase() + name.slice(1).toLowerCase() : model
 }
-const label = (r: Row) => (r.effort ? `${family(r.model)} · ${r.effort}` : (family(r.model) ?? r.model))
+const label = (r: Row) => (r.effort ? `${family(r.model)} ${r.effort}` : (family(r.model) ?? r.model))
 const plain = (u: Usage): Usage => ({
   input_tokens: u.input_tokens ?? 0,
   output_tokens: u.output_tokens ?? 0,
@@ -147,7 +160,6 @@ let tick: Timer | undefined
 let syncs = 0
 let spawns = 0
 let leadModel: string | undefined
-let encoded: { key: string; cells: string } | undefined
 // Hooks cannot be added after register() (Registration has only .catch), so tool.call and turn.step pass straight
 // through until the pane has been opened in this session.
 let active = false
@@ -197,24 +209,6 @@ async function sync($: EngineInterface) {
     tick.cancel()
     tick = undefined
   }
-}
-
-// One width-1 glyph per cell, the terminal's default colours (a Raster takes raw RGB, not theme keys).
-function cells(lines: string[], columns: number) {
-  const DEFAULT = 0x01000000
-  const words = new Uint32Array(columns * lines.length * 3)
-  lines.forEach((line, y) => {
-    for (let x = 0; x < columns; x++) words.set([line.codePointAt(x) ?? 0x20, DEFAULT, DEFAULT], (y * columns + x) * 3)
-  })
-  const bytes = new Uint8Array(words.buffer)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
-}
-const cachedCells = (lines: string[], columns: number) => {
-  const key = `${columns}\n${lines.join('\n')}`
-  if (encoded?.key !== key) encoded = { key, cells: cells(lines, columns) }
-  return encoded.cells
 }
 
 export const register: Register = on => {
@@ -276,7 +270,8 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     const pin = await pinOf($, e.subagentType)
-    const effort = efforts.get(e.tool_use_id) ?? pin.effort
+    const explicitEffort = efforts.get(e.tool_use_id)
+    const effort = explicitEffort ?? pin.effort
     efforts.delete(e.tool_use_id)
     const startedAt = await $.clock.now()
     const resumed = e.resume?.agentId
@@ -291,7 +286,6 @@ export const register: Register = on => {
       const row: Row = { id, agentId: resumed, role, model: e.model ?? '…', effort, description: e.description, startedAt, tools: 0 }
       return keepRecent([...list, row])
     })
-    await update($, feed, f => (f.firstAt === undefined ? { ...f, firstAt: startedAt } : f))
     const undo = (list: Row[]) => list.flatMap(r => (isMine(r) ? (before ? [before] : []) : [r]))
 
     try {
@@ -317,9 +311,12 @@ export const register: Register = on => {
         ),
       )
       if (!resumed) ended.delete(agentId)
-      const escalated = e.model && pin.model && family(e.model) !== family(pin.model)
+      const changed = [
+        higher(MODELS, family(e.model), family(pin.model)) && `on ${family(e.model)}`,
+        higher(EFFORTS, explicitEffort, pin.effort) && `at ${explicitEffort} effort`,
+      ].filter(Boolean)
       const lines = [`lead → ${role}: ${e.description}`]
-      if (escalated) lines.push(`escalation: ${role} sent again on ${family(e.model)}`)
+      if (changed.length) lines.push(`escalation: ${role} re-sent ${changed.join(' ')}`)
       if (closed) lines.push(endEvent(closed, end?.answer))
       await addEvents($, lines).catch(() => undefined)
 
@@ -355,13 +352,13 @@ export const register: Register = on => {
     const list = await read($, rows)
     if (list.length === 0) return <Text dimColor>No subagents have run yet in this session.</Text>
 
-    const { events, firstAt, lead, tokens: spent } = await read($, feed)
+    const { events, lead, tokens: spent } = await read($, feed)
     const mode = await read($, modeAtom)
     const now = await $.clock.now()
     const session = await $.session.usage().catch(() => undefined)
     const cols = Math.max(20, e.props.bodyColumns)
     const running = list.filter(isRunning)
-    const recent = list.filter(r => !isRunning(r)).reverse()
+    const longest = Math.max(1, ...running.map(r => now - r.startedAt))
     const other: Mode = mode === 'compact' ? 'extended' : 'compact'
     const spin = (i: number) => SPIN[(Math.floor(now / 250) + i) % SPIN.length]
     const stats = (r: Row) => {
@@ -371,137 +368,113 @@ export const register: Register = on => {
     const figures = (r: Row) => [clock((r.endedAt ?? now) - r.startedAt), stats(r)].filter(Boolean).join(' · ')
     const pct = session?.context.percent
     const sessionLine = [
-      `session  ${short(spent + running.reduce((n, r) => n + fresh(r.live), 0))} tok`,
+      `session ${short(spent + running.reduce((n, r) => n + fresh(r.live), 0))} tok`,
       session?.cost && `$${session.cost.usd.toFixed(2)} est.`,
-      mode === 'compact' ? pct !== undefined && `lead ctx ${pct}%` : `${running.length} running`,
+      mode === 'compact' && pct !== undefined && `lead ctx ${pct}%`,
+      `${running.length} running`,
     ]
       .filter(Boolean)
-      .join('   ')
-    const rule = <Text dimColor>{'─'.repeat(cols)}</Text>
+      .join(' · ')
     const head = (
       <Box justifyContent="space-between">
-        <Text bold>{mode === 'compact' ? 'SUBAGENTS' : 'SUBAGENTS · extended'}</Text>
-        <Box gap={2}>
-          <Text dimColor>{`${running.length} running`}</Text>
-          <Button key="mode" hotkey="m" plain onPress={() => setMode($, other)}>
-            {other}
-          </Button>
-        </Box>
+        <Text weight="bold">{mode === 'compact' ? 'SUBAGENTS' : 'SUBAGENTS · extended'}</Text>
+        <Button key="mode" hotkey="m" plain dimColor onPress={() => setMode($, other)}>
+          {other}
+        </Button>
       </Box>
     )
+    const title = (name: string, detail: string | undefined, right: string | undefined) => (
+      <Box justifyContent="space-between" gap={1}>
+        <Box flexShrink={1}>
+          <Text weight="bold" wrap="truncate-end">{name}</Text>
+          {detail ? <Text dimColor wrap="truncate-end">{` · ${detail}`}</Text> : undefined}
+        </Box>
+        {right ? (
+          <Box flexShrink={0}>
+            <Text dimColor>{right}</Text>
+          </Box>
+        ) : undefined}
+      </Box>
+    )
+    const card = (color: string, ...lines: RenderChildren[]) => (
+      <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} width={cols}>
+        {lines}
+      </Box>
+    )
+    const runningCard = (r: Row, i: number) =>
+      card(
+        r.agentId ? 'claude' : 'subtle',
+        title(r.role, label(r), clock(now - r.startedAt)),
+        r.agentId ? (
+          <Box gap={1}>
+            <Text color="claude">{spin(i)}</Text>
+            <Text wrap="truncate-end">{r.tool ? activity(r.tool, r.target) : 'starting'}</Text>
+          </Box>
+        ) : (
+          <Text dimColor>· waiting</Text>
+        ),
+        r.agentId ? <Text wrap="truncate-end">{`${bar(now - r.startedAt, longest)}  ${stats(r)}`}</Text> : undefined,
+      )
+    const finishedLine = (r: Row) => {
+      const ok = r.outcome === 'done'
+      return (
+        <Box justifyContent="space-between" gap={1}>
+          <Box flexShrink={1}>
+            <Text color={ok ? 'success' : 'error'}>{ok ? '✓' : '✗'}</Text>
+            <Text dimColor wrap="truncate-end">{` ${r.role} · ${label(r)}${ok ? '' : ` · ${r.outcome}`}`}</Text>
+          </Box>
+          <Box flexShrink={0}>
+            <Text dimColor>{figures(r)}</Text>
+          </Box>
+        </Box>
+      )
+    }
+    const finished = (members: Row[]) => members.filter(r => !isRunning(r)).reverse().map(finishedLine)
+    const cards = (members: Row[], gap: number) => (
+      <Box flexDirection="column" gap={gap}>
+        {members.filter(isRunning).map(runningCard)}
+      </Box>
+    )
+    const sessionText = <Text dimColor wrap="truncate-end">{sessionLine}</Text>
 
     if (mode === 'compact') {
       return (
         <Box flexDirection="column">
           {head}
-          {rule}
-          {running.map((r, i) => (
-            <Box flexDirection="column">
-              <Box justifyContent="space-between">
-                <Text color="claude">{`${spin(i)} ${r.role.padEnd(9)} ${label(r)}`}</Text>
-                <Text>{clock(now - r.startedAt)}</Text>
-              </Box>
-              {r.tool && <Text dimColor wrap="truncate-end">{`  ↳ ${activity(r.tool, r.target)}`}</Text>}
-              <Text dimColor>{`  ${'▓'.repeat(Math.min(14, r.tools)).padEnd(14, '░')}  ${stats(r)}`}</Text>
-            </Box>
-          ))}
-          {recent.map(r => (
-            <Box justifyContent="space-between">
-              <Text color={r.outcome === 'done' ? 'success' : 'error'}>
-                {`${r.outcome === 'done' ? '✓' : '✗'} ${r.role.padEnd(9)} ${label(r)}${r.outcome === 'done' ? '' : `  ${r.outcome}`}`}
-              </Text>
-              <Text dimColor>{figures(r)}</Text>
-            </Box>
-          ))}
-          {rule}
-          <Text dimColor>{sessionLine}</Text>
+          {cards(list, 0)}
+          {finished(list)}
+          <Box marginTop={1}>{sessionText}</Box>
         </Box>
       )
     }
 
-    const boxWidth = cols >= 64 ? Math.floor(cols / 2) : cols
-    const agentBox = (r: Row, i: number) => {
-      const state = !isRunning(r) ? (r.outcome === 'done' ? 'done' : 'failed') : r.agentId ? 'running' : 'waiting'
-      const color = ({ running: 'claude', done: 'success', failed: 'error', waiting: 'subtle' } as const)[state]
-      const status = {
-        running: `${spin(i)} ${figures(r)}`,
-        done: `✓ done ${figures(r)}`,
-        failed: `✗ ${r.outcome} ${figures(r)}`,
-        waiting: '· waiting',
-      }[state]
-      return (
-        <Box flexDirection="column" borderStyle="round" borderColor={color} borderDimColor={state === 'done'} width={boxWidth}>
-          <Text bold color={color} wrap="truncate-end">{`${r.role} ─ ${label(r)}`}</Text>
-          <Text wrap="truncate-end">{status}</Text>
-          {state === 'running' && r.tool && <Text dimColor wrap="truncate-end">{`↳ ${activity(r.tool, r.target)}`}</Text>}
-        </Box>
-      )
-    }
     const lanes = [...LANES, { name: 'OTHER', note: '' }].map(lane => {
       const members = list.filter(r => laneOf(r) === lane.name)
       if (members.length === 0 && lane.name === 'OTHER') return undefined
       return (
         <Box flexDirection="column">
           <Text dimColor>{lane.note ? `${lane.name} · ${lane.note}` : lane.name}</Text>
-          <Box flexWrap="wrap">
-            {members.length > 0 ? (
-              members.map((r, i) => agentBox(r, i))
-            ) : (
-              <Box borderStyle="round" borderColor="subtle" borderDimColor width={boxWidth}>
-                <Text dimColor>none this session</Text>
-              </Box>
-            )}
-          </Box>
+          {members.length > 0 ? [cards(members, 1), ...finished(members)] : <Text dimColor>none this session</Text>}
         </Box>
       )
     })
 
-    const timeline = [...list].sort((a, b) => a.startedAt - b.startedAt)
-    const origin = firstAt ?? timeline[0]!.startedAt
-    // Whole seconds, so the bars (and the Raster's cells) change at most once a second while the spinner ticks faster.
-    const second = Math.floor(now / 1000) * 1000
-    const span = Math.max(1000, Math.max(second, ...list.map(r => r.endedAt ?? second)) - origin)
-    const labelWidth = 10
-    const barWidth = Math.max(1, Math.min(512, cols - labelWidth))
-    const bars = timeline.map(r => {
-      const from = Math.min(barWidth - 1, Math.floor(((r.startedAt - origin) / span) * barWidth))
-      const to = Math.max(from + 1, Math.floor((((r.endedAt ?? second) - origin) / span) * barWidth))
-      return (' '.repeat(from) + '▓'.repeat(Math.min(barWidth, to) - from)).padEnd(barWidth)
-    })
-    const leadLine = [lead.model && family(lead.model), pct !== undefined && `ctx ${pct}%`].filter(Boolean).join(' · ')
-    const Raster = e.surface === 'terminal' ? $.ui.resolve(e).Raster : undefined
-
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" gap={1}>
         {head}
-        <Box flexDirection="column" borderStyle="round" borderColor="claude" width={Math.min(cols, 30)}>
-          <Text bold color="claude">LEAD</Text>
-          {leadLine ? <Text>{leadLine}</Text> : undefined}
-          {lead.tool && <Text dimColor wrap="truncate-end">{`↳ ${activity(lead.tool, lead.target)}`}</Text>}
-        </Box>
+        {card(
+          'claude',
+          title('lead', lead.model && family(lead.model), pct !== undefined ? `ctx ${pct}%` : undefined),
+          lead.tool ? <Text wrap="truncate-end">{activity(lead.tool, lead.target)}</Text> : undefined,
+        )}
         {lanes}
-        <Text bold>{`TIMELINE  0:00 ${'─'.repeat(Math.max(1, cols - 22))} ${clock(span)}`}</Text>
-        <Box>
-          <Box flexDirection="column" width={labelWidth}>
-            {timeline.map(r => (
-              <Text wrap="truncate-end">{r.role}</Text>
-            ))}
-          </Box>
-          {Raster ? (
-            <Raster key="timeline" columns={barWidth} rows={bars.length} cells={cachedCells(bars, barWidth)} />
-          ) : (
-            <Box flexDirection="column">
-              {bars.map(bar => (
-                <Text>{bar}</Text>
-              ))}
-            </Box>
-          )}
+        <Box flexDirection="column">
+          <Text dimColor>EVENTS</Text>
+          {events.map(line => (
+            <Text dimColor wrap="truncate-end">{line}</Text>
+          ))}
         </Box>
-        <Text bold>EVENTS</Text>
-        {events.map(line => (
-          <Text dimColor wrap="truncate-end">{line}</Text>
-        ))}
-        <Text dimColor>{sessionLine}</Text>
+        {sessionText}
       </Box>
     )
   })

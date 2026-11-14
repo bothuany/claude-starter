@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews what it changed, and cleans up after itself. Every piece that changes how Claude works was measured before it shipped.
 
-[![version 0.9.4](https://img.shields.io/badge/version-0.9.4-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.9.5](https://img.shields.io/badge/version-0.9.5-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -28,7 +28,7 @@ You talk to one session, the lead. It asks what it can't look up, plans, and han
 | Working rules | About 1,000 tokens at session start: ask before assuming, check the docs, delegate, verify before saying done |
 | Review gate | A `Stop` hook. If the session changed enough code and no review ran, it asks for one, once |
 | Role agents | `locator` (Haiku) finds and lists, `reader` (Opus, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, high) checks with a fresh context. The lead picks the role; the role fixes model and effort |
-| `/subagents` | Opens a live side panel of subagents, closed by default: compact lists each one's current tool, tokens and estimated cost, and extended (`/subagents extended`, or `m` in the panel) draws the lead, READ/WRITE/CHECK lanes, a timeline and an events feed |
+| `/subagents` | Opens a live side panel of subagents, closed by default: compact shows each running agent as a card with its current tool, a duration bar, tokens and estimated cost, and each finished one as a single line, and extended (`/subagents extended`, or `m` in the panel) adds the lead card, READ/WRITE/CHECK lanes and an events feed |
 | `/starter:fan-out` | Hands an approved plan to a workflow outside your session: one builder, then one fresh reviewer |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
 | `visual-plan` | Turns a plan into a visual contract: diagrams, API contract, data model, open questions |

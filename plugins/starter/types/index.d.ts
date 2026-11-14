@@ -27,7 +27,6 @@ export type Row = {
 
 export type Feed = {
   events: string[]
-  firstAt?: number
   tokens: number
   lead: { model?: string; tool?: string; target?: string }
 }

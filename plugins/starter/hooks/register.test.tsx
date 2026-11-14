@@ -9,8 +9,7 @@ const PANE = {
   props: { title: 'Subagents', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 const BY = { plugin: 'starter', tier: 'user' } as const
-const RULE = '─'.repeat(80)
-const BAR = '░'.repeat(14)
+const EMPTY_BAR = '░'.repeat(10)
 
 const spawn = (tool_use_id: string, subagentType: string, model?: string) => ({
   tool_use_id, prompt: 'p', description: `task ${tool_use_id}`, subagentType, model, provider: BY,
@@ -58,6 +57,43 @@ async function texts($: Engine, surface: 'terminal' | 'desktop' = 'terminal') {
   await ui.unmount()
   return found
 }
+
+type Drawn = string | { type: string; props?: Record<string, unknown>; children?: unknown[] }
+const flatText = (n: Drawn): string => (typeof n === 'string' ? n : (n.children ?? []).flat(Infinity).map(c => flatText(c as Drawn)).join(''))
+// A text rendering of the drawn tree: borders, padding, gaps and space-between rows as the terminal lays them out; wrap and truncation are not modelled.
+function layout(n: Drawn, width: number): string[] {
+  if (typeof n === 'string' || n.type === 'Text') return [flatText(n)]
+  if (n.type === 'Button') return [`${n.props?.hotkey}: ${n.props?.label}`]
+  const p = n.props ?? {}
+  const own = typeof p.width === 'number' ? p.width : width
+  const frame = p.borderStyle ? 1 : 0
+  const pad = Number(p.paddingX ?? 0)
+  const inner = own - 2 * (frame + pad)
+  const kids = (n.children ?? []).flat(Infinity).filter((c): c is Drawn => c != null && c !== false) as Drawn[]
+  const gap = Number(p.gap ?? 0)
+  let lines: string[]
+  if (p.flexDirection === 'column') {
+    lines = kids.flatMap((k, i) => [...(i > 0 ? Array<string>(gap).fill('') : []), ...layout(k, inner)])
+  } else {
+    const parts = kids.map(k => layout(k, inner).join(''))
+    const fill = p.justifyContent === 'space-between' && parts.length === 2 ? Math.max(1, inner - parts[0]!.length - parts[1]!.length) : gap
+    lines = [parts.join(' '.repeat(fill))]
+  }
+  if (frame) {
+    const side = ' '.repeat(pad)
+    lines = [`╭${'─'.repeat(own - 2)}╮`, ...lines.map(l => `│${side}${l.padEnd(inner)}${side}│`), `╰${'─'.repeat(own - 2)}╯`]
+  }
+  return p.marginTop ? ['', ...lines] : lines
+}
+async function screen($: Engine, surface: 'terminal' | 'desktop' = 'terminal') {
+  const ui = await $.ui.mount({ ...PANE, surface })
+  const lines = layout((await ui.drawn()) as Drawn, 80)
+  await ui.unmount()
+  return lines
+}
+// The screen without borders, blank rows and the padding that right-aligns a time.
+const content = async ($: Engine) =>
+  (await screen($)).filter(l => l && !/^[╭╰]/.test(l)).map(l => l.replace(/^│ /, '').replace(/ │$/, '').trimEnd().replace(/ {2,}/g, '  '))
 
 test('the empty pane says no subagent has run', async ($, on) => {
   on('clock.now', () => ({ value: 1000 }))
@@ -110,14 +146,14 @@ test('rows show the resolved model, the explicit effort else the role pin, and e
   await $.turn.complete(complete('a1', 'answer'))
   await $.turn.complete(complete('a2', 'error'))
 
-  expect(await texts($)).toEqual([
-    'SUBAGENTS', '3 running', RULE,
-    '⠼ general-purpose resolved', '0:00', `  ${BAR}  0 tools`,
-    '⠴ writer    Opus · high', '0:00', `  ${BAR}  0 tools`,
-    '⠦ reader    Opus · max', '0:00', `  ${BAR}  0 tools`,
-    '✗ locator   resolved  error', '0:00',
-    '✓ writer    resolved · high', '0:00',
-    RULE, 'session  0 tok',
+  expect(await content($)).toEqual([
+    'SUBAGENTS  m: extended',
+    'general-purpose · resolved  0:00', '⠼ starting', `${EMPTY_BAR}  0 tools`,
+    'writer · Opus high  0:00', '⠴ starting', `${EMPTY_BAR}  0 tools`,
+    'reader · Opus max  0:00', '⠦ starting', `${EMPTY_BAR}  0 tools`,
+    '✗ locator · resolved · error  0:00',
+    '✓ writer · resolved high  0:00',
+    'session 0 tok · 3 running',
   ])
 })
 
@@ -135,8 +171,7 @@ test('a failed definition read keeps the other pins and is read again on the nex
   await $.agent.spawn(spawn('u1', 'starter:writer'))
   await $.agent.spawn(spawn('u2', 'starter:reader'))
 
-  const lines = await texts($)
-  expect(lines.filter(line => / m · /.test(line))).toEqual(['⠼ writer    m · high', '⠴ reader    m · medium'])
+  expect((await content($)).filter(line => / · m /.test(line))).toEqual(['writer · m high  0:00', 'reader · m medium  0:00'])
 })
 
 test('a turn.complete that arrives before the spawn settles still closes the row', async ($, on) => {
@@ -152,7 +187,7 @@ test('a turn.complete that arrives before the spawn settles still closes the row
   await time.advance(10)
   await spawning
 
-  expect(await texts($)).toEqual(['SUBAGENTS', '0 running', RULE, '✓ general-purpose m', '0:00', RULE, 'session  0 tok'])
+  expect(await content($)).toEqual(['SUBAGENTS  m: extended', '✓ general-purpose · m  0:00', 'session 0 tok · 0 running'])
 })
 
 test('a resumed subagent reuses its row, and a denied resume leaves it finished', async ($, on) => {
@@ -163,15 +198,19 @@ test('a resumed subagent reuses its row, and a denied resume leaves it finished'
   await $.turn.complete(complete('a1', 'answer'))
   await time.advance(5000)
   await $.agent.spawn({ ...spawn('u2', 'general-purpose'), resume: { agentId: 'a1' } })
-  expect(await texts($)).toEqual(['SUBAGENTS', '1 running', RULE, '⠼ general-purpose m', '0:00', `  ${BAR}  0 tools`, RULE, 'session  0 tok'])
+  expect(await content($)).toEqual([
+    'SUBAGENTS  m: extended',
+    'general-purpose · m  0:00', '⠼ starting', `${EMPTY_BAR}  0 tools`,
+    'session 0 tok · 1 running',
+  ])
 
   await time.advance(2000)
   await $.turn.complete(complete('a1', 'answer'))
-  const finished = ['SUBAGENTS', '0 running', RULE, '✓ general-purpose m', '0:02', RULE, 'session  0 tok']
-  expect(await texts($)).toEqual(finished)
+  const finished = ['SUBAGENTS  m: extended', '✓ general-purpose · m  0:02', 'session 0 tok · 0 running']
+  expect(await content($)).toEqual(finished)
 
   await $.agent.spawn({ ...spawn('u3', 'general-purpose'), prompt: 'no', resume: { agentId: 'a1' } }).catch(() => undefined)
-  expect(await texts($)).toEqual(finished)
+  expect(await content($)).toEqual(finished)
 })
 
 test('a spawn whose next rejects leaves no row running', async ($, on) => {
@@ -192,7 +231,7 @@ test('at most 20 subagents show as running, the oldest dropped first', async ($,
 
   for (let i = 1; i <= 22; i++) await $.agent.spawn(spawn(`u${i}`, `t${i}`))
 
-  const roles = (await texts($)).filter(line => / m$/.test(line)).map(line => line.slice(2).split(' ')[0])
+  const roles = (await content($)).filter(line => / · m  0:00$/.test(line)).map(line => line.split(' ')[0])
   expect(roles).toEqual(Array.from({ length: 20 }, (_, i) => `t${i + 3}`))
 })
 
@@ -206,8 +245,8 @@ test('only the last 10 finished subagents stay in Recent', async ($, on) => {
     await $.turn.complete(complete(`a${i}`, 'answer'))
   }
 
-  const lines = await texts($)
-  expect(lines.slice(0, 3)).toEqual(['SUBAGENTS', '0 running', RULE])
+  const lines = await content($)
+  expect(lines[0]).toBe('SUBAGENTS  m: extended')
   const roles = lines.filter(line => line.startsWith('✓')).map(line => line.slice(2).split(' ')[0])
   expect(roles).toEqual(Array.from({ length: 10 }, (_, i) => `t${12 - i}`))
 })
@@ -226,11 +265,9 @@ test('compact shows the current tool and its target for a running agent, and its
   await $.tool.call({ tool: 'Read', file_path: '/repo/src/ClassReservationService.cs', agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'dotnet test   --filter RC09\n  --no-build --verbosity quiet --logger trx', agentId: 'a1' })
   await step($, 'a1', 'claude-sonnet-5-5')
-  await time.settle()
+  await time.advance(2000)
 
-  const lines = await texts($)
-  expect(lines.slice(3, 6)).toEqual(['⠼ general-purpose Sonnet', '0:00', '  ↳ Bash  dotnet test'])
-  expect(lines[6]).toBe('  ▓▓░░░░░░░░░░░░  2 tools · 3k tok · $0.02 est.')
+  expect((await content($)).slice(1, 4)).toEqual(['general-purpose · Sonnet  0:02', '⠹ Bash  dotnet test', '██████████  2 tools · 3k tok · $0.02 est.'])
 })
 
 test('a Bash target is the program and one plain word, never the rest of the command', async ($, on) => {
@@ -238,22 +275,22 @@ test('a Bash target is the program and one plain word, never the rest of the com
   on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
   on('tool.call', () => ({ result: {} }))
   opens(on)
-  const shown = async () => (await texts($)).find(line => line.startsWith('  ↳'))
+  const shown = async () => (await content($)).find(line => /^. Bash/.test(line))
 
   await open($)
   await $.agent.spawn(spawn('u1', 'general-purpose'))
   await $.tool.call({ tool: 'Bash', command: 'git push https://user:ghp_s3cretT0ken@github.com/o/r.git main', agentId: 'a1' })
   await time.settle()
-  expect(await shown()).toBe('  ↳ Bash  git push')
+  expect(await shown()).toMatch(/Bash {2}git push$/)
 
   await $.tool.call({ tool: 'Bash', command: 'curl -H "Authorization: Bearer ghp_s3cretT0ken" https://api.example.com', agentId: 'a1' })
   await time.settle()
-  expect(await shown()).toBe('  ↳ Bash  curl')
+  expect(await shown()).toMatch(/Bash {2}curl$/)
 
   await $.tool.call({ tool: 'Bash', command: 'GITHUB_TOKEN=ghp_s3cretT0ken ./deploy.sh prod', agentId: 'a1' })
   await time.settle()
-  expect(await shown()).toBe('  ↳ Bash  deploy.sh prod')
-  expect((await texts($)).some(line => line.includes('ghp_'))).toBe(false)
+  expect(await shown()).toMatch(/Bash {2}deploy.sh prod$/)
+  expect((await screen($)).some(line => line.includes('ghp_'))).toBe(false)
 })
 
 test('with the pane never opened, a lead tool call and a model step pass through and leave $.state untouched', async ($, on) => {
@@ -281,7 +318,7 @@ test('with the pane never opened, a lead tool call and a model step pass through
   expect(touched).toEqual([])
 })
 
-test('extended groups agents into the READ, WRITE and CHECK lanes, with the lead, timeline and events', async ($, on) => {
+function lanes(on: On) {
   let n = 0
   const time = world(on)
   pins(on)
@@ -292,6 +329,11 @@ test('extended groups agents into the READ, WRITE and CHECK lanes, with the lead
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
   opens(on)
+  return time
+}
+
+test('every agent is a card in both modes, a finished one a single dim line, and extended adds the lead, lanes and events', async ($, on) => {
+  const time = lanes(on)
 
   await open($)
   await step($, undefined, 'claude-opus-5-5')
@@ -306,47 +348,136 @@ test('extended groups agents into the READ, WRITE and CHECK lanes, with the lead
   await $.tool.call({ tool: 'Agent', subagent_type: 'starter:writer', description: 'd', prompt: 'p' })
   await time.advance(5000)
   await time.settle()
-  expect(await texts($)).toEqual([
-    'SUBAGENTS', '2 running', RULE,
-    '⠹ reader    Opus', '0:08', '  ↳ Read  RowLock.cs', `  ▓${'░'.repeat(13)}  1 tools`,
-    '⠸ writer    Sonnet · high', '0:05', '  ↳ Edit  TransferService.cs', `  ▓${'░'.repeat(13)}  1 tools`,
-    '✓ locator   Haiku', '0:04 · 2k tok · $0.00 est.',
-    RULE, 'session  2k tok   $0.33 est.   lead ctx 21%',
+
+  expect(await content($)).toEqual([
+    'SUBAGENTS  m: extended',
+    'reader · Opus  0:08', '⠹ Read  RowLock.cs', '██████████  1 tools',
+    'writer · Sonnet high  0:05', '⠸ Edit  TransferService.cs', '██████▎░░░  1 tools',
+    '✓ locator · Haiku  0:04 · 2k tok · $0.00 est.',
+    'session 2k tok · $0.33 est. · lead ctx 21% · 2 running',
   ])
   await extended($)
 
-  expect(await texts($)).toEqual([
-    'SUBAGENTS · extended', '2 running',
-    'LEAD', 'Opus · ctx 21%', '↳ Agent',
+  expect(await content($)).toEqual([
+    'SUBAGENTS · extended  m: compact',
+    'lead · Opus  ctx 21%', 'Agent',
     'READ · in parallel',
-    'locator ─ Haiku', '✓ done 0:04 · 2k tok · $0.00 est.',
-    'reader ─ Opus', '⠸ 0:08 · 1 tools', '↳ Read  RowLock.cs',
+    'reader · Opus  0:08', '⠹ Read  RowLock.cs', '██████████  1 tools',
+    '✓ locator · Haiku  0:04 · 2k tok · $0.00 est.',
     'WRITE · one at a time',
-    'writer ─ Sonnet · high', '⠹ 0:05 · 1 tools', '↳ Edit  TransferService.cs',
-    'CHECK · fresh context',
-    'none this session',
-    `TIMELINE  0:00 ${'─'.repeat(58)} 0:12`,
-    'locator', 'reader', 'writer',
+    'writer · Sonnet high  0:05', '⠹ Edit  TransferService.cs', '██████▎░░░  1 tools',
+    'CHECK · fresh context', 'none this session',
     'EVENTS',
     'lead → locator: task u1',
     'locator done · 0:04 · 2k tok — Found 3 files.',
     'lead → reader: task u2',
     'lead → writer: task u3',
-    'session  2k tok   $0.33 est.   2 running',
-  ])
-  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await terminal.find({ type: 'Raster', key: 'timeline' })).toBeDefined()
-  await terminal.unmount()
-  const desktop = await texts($, 'desktop')
-  expect(desktop.filter(line => line.includes('▓'))).toEqual([
-    '▓'.repeat(23) + ' '.repeat(47),
-    ' '.repeat(23) + '▓'.repeat(47),
-    ' '.repeat(40) + '▓'.repeat(30),
+    'session 2k tok · $0.33 est. · 2 running',
   ])
 
   await $.agent.spawn(spawn('u4', 'general-purpose'))
-  const lines = await texts($)
-  expect(lines.slice(lines.indexOf('none this session') + 1, lines.indexOf('none this session') + 3)).toEqual(['OTHER', 'general-purpose ─ Sonnet'])
+  const other = await content($)
+  expect(other.slice(other.indexOf('none this session') + 1, other.indexOf('none this session') + 3)).toEqual(['OTHER', 'general-purpose · Sonnet  0:00'])
+})
+
+test('the duration bar is exactly 10 cells and the longest running agent fills it', async ($, on) => {
+  const time = lanes(on)
+
+  await $.agent.spawn(spawn('u1', 'starter:reader'))
+  await time.advance(4000)
+  await $.agent.spawn(spawn('u2', 'starter:reader'))
+  await time.advance(2000)
+  await $.agent.spawn(spawn('u3', 'starter:reader'))
+  await time.advance(2000)
+
+  for (const mode of ['compact', 'extended'] as const) {
+    await $.command.run({ ...COMMAND, args: mode })
+    const bars = (await content($)).filter(line => /^[█▏▎▍▌▋▊▉░]+ {2}/.test(line)).map(line => line.split('  ')[0]!)
+    expect(bars.map(b => [...b].length)).toEqual([10, 10, 10])
+    expect(bars).toEqual(['██████████', '█████░░░░░', '██▌░░░░░░░'])
+  }
+})
+
+test('a finished agent is one line without a border, in both modes', async ($, on) => {
+  const time = lanes(on)
+  await $.agent.spawn(spawn('u1', 'starter:locator'))
+  await time.advance(4000)
+  await $.turn.complete(complete('a1', 'answer', tokens('claude-haiku-5-5', 1500, 500)))
+
+  for (const [mode, cards] of [['compact', 0], ['extended', 1]] as const) {
+    await $.command.run({ ...COMMAND, args: mode })
+    const lines = await screen($)
+    expect(lines.filter(line => line.startsWith('╭'))).toHaveLength(cards)
+    expect(lines.filter(line => line.startsWith('✓'))).toHaveLength(1)
+    expect(lines.find(line => line.startsWith('✓'))).toMatch(/^✓ locator · Haiku +0:04 · 2k tok · \$0\.00 est\.$/)
+  }
+})
+
+test('extended has no timeline section', async ($, on) => {
+  const time = lanes(on)
+  await $.agent.spawn(spawn('u1', 'starter:reader'))
+  await time.advance(3000)
+
+  await extended($)
+  const lines = [...(await texts($)), ...(await texts($, 'desktop'))]
+  expect(lines.some(line => /TIMELINE|▓/.test(line))).toBe(false)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('cards are one blank row apart in extended and touch in compact', async ($, on) => {
+  const time = lanes(on)
+  await $.agent.spawn(spawn('u1', 'starter:reader'))
+  await $.agent.spawn(spawn('u2', 'starter:reader'))
+  await time.advance(1000)
+  const belowCards = async () => {
+    const lines = await screen($)
+    return lines.flatMap((line, i) => (line.startsWith('╰') ? [lines[i + 1]?.slice(0, 1)] : []))
+  }
+
+  expect((await belowCards())[0]).toBe('╭')
+  await extended($)
+  expect((await belowCards())[1]).toBe('')
+})
+
+test('a negative elapsed time draws an empty bar and 0:00 instead of throwing', async ($, on) => {
+  let t = 5000
+  on('clock.now', () => ({ value: t }))
+  on('ui.panes', () => ({ value: [] }))
+  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
+
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+  t = 2000
+
+  expect((await content($)).slice(1, 4)).toEqual(['general-purpose · m  0:00', '⠇ starting', `${EMPTY_BAR}  0 tools`])
+})
+
+test('a waiting card has no bar', async ($, on) => {
+  const time = world(on)
+  on('agent.spawn', async () => {
+    await time.sleep(10)
+    return { model: 'm', agentId: 'a1' }
+  })
+
+  const spawning = $.agent.spawn(spawn('u1', 'general-purpose'))
+  await time.settle()
+  expect(await content($)).toEqual(['SUBAGENTS  m: extended', 'general-purpose · …  0:00', '· waiting', 'session 0 tok · 1 running'])
+
+  await time.advance(10)
+  await spawning
+})
+
+test("a failed agent's glyph keeps its error colour while the line stays dim", async ($, on) => {
+  world(on)
+  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
+  await $.agent.spawn(spawn('u1', 'general-purpose'))
+  await $.turn.complete(complete('a1', 'error'))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: '✗' }))?.props).toEqual({ color: 'error' })
+  expect((await ui.find({ type: 'Text', text: / general-purpose · m · error/ }))?.props).toMatchObject({ dimColor: true })
+  await ui.unmount()
 })
 
 test('/subagents extended is kept in the store, and the pane button switches back', async ($, on) => {
@@ -401,29 +532,50 @@ test('cost shows as an estimate for a priced model and is left out for an unknow
   await $.turn.complete(complete('a3', 'answer', tokens('us.anthropic.claude-sonnet-5-5-v1:0', 1000, 2000, 10_000, 4000)))
   await $.turn.complete(complete('a4', 'answer', tokens('claude-sonnet-5-5@20261101', 1000, 2000, 10_000, 4000)))
 
-  expect((await texts($)).slice(3)).toEqual([
-    '✓ vertex    m', '0:00 · 7k tok · $0.03 est.',
-    '✓ bedrock   m', '0:00 · 7k tok · $0.03 est.',
-    '✓ unpriced  m', '0:00 · 7k tok',
-    '✓ priced    m', '0:00 · 7k tok · $0.03 est.',
-    RULE, 'session  28k tok   $0.33 est.   lead ctx 21%',
+  expect((await content($)).slice(1)).toEqual([
+    '✓ vertex · m  0:00 · 7k tok · $0.03 est.',
+    '✓ bedrock · m  0:00 · 7k tok · $0.03 est.',
+    '✓ unpriced · m  0:00 · 7k tok',
+    '✓ priced · m  0:00 · 7k tok · $0.03 est.',
+    'session 28k tok · $0.33 est. · lead ctx 21% · 0 running',
   ])
 })
 
-test('an explicit model on a role that pins another one is an escalation event', async ($, on) => {
+test('only an explicit model or effort above the role pin is an escalation event, naming what changed', async ($, on) => {
   let n = 0
+  let callId = ''
   world(on)
-  pins(on)
+  on('fs.list', () => ({ value: [file('writer.md'), file('reader.md')] }))
+  on('fs.read', (_, e) => ({ value: e.path.endsWith('writer.md') ? '---\nmodel: sonnet\neffort: high\n---\n' : '---\nmodel: opus\neffort: medium\n---\n' }))
   on('agent.spawn', (_, e) => ({ model: e.model ?? 'sonnet', agentId: `a${++n}` }))
+  on('tool.call', (_, e) => {
+    callId = e.tool_use_id
+    return { result: {} }
+  })
   opens(on)
-
-  await $.agent.spawn(spawn('u1', 'starter:writer', 'opus'))
-  await $.agent.spawn(spawn('u2', 'starter:writer', 'claude-sonnet-5-5'))
-  await $.agent.spawn(spawn('u3', 'starter:writer'))
-  await $.agent.spawn(spawn('u4', 'general-purpose', 'opus'))
   await extended($)
+  const raised: string[] = []
+  const spawned = async (id: string, type: string, model?: string) => {
+    await $.agent.spawn(spawn(id, type, model))
+    for (const line of (await texts($)).filter(l => l.startsWith('escalation'))) if (!raised.includes(line)) raised.push(line)
+  }
+  const withEffort = async (type: string, effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max') => {
+    await $.tool.call({ tool: 'Agent', subagent_type: type, effort, description: 'd', prompt: 'p' })
+    await spawned(callId, type)
+  }
 
-  expect((await texts($)).filter(line => line.startsWith('escalation'))).toEqual(['escalation: writer sent again on Opus'])
+  await spawned('u1', 'starter:writer', 'opus')
+  await spawned('u2', 'starter:writer', 'claude-sonnet-5-5')
+  await spawned('u3', 'starter:writer', 'haiku')
+  await spawned('u4', 'starter:writer')
+  await spawned('u5', 'general-purpose', 'opus')
+  await withEffort('starter:reader', 'high')
+  await withEffort('starter:reader', 'medium')
+  await withEffort('starter:reader', 'low')
+  await withEffort('starter:writer', 'high')
+  await withEffort('starter:writer', 'low')
+
+  expect(raised).toEqual(['escalation: writer re-sent on Opus', 'escalation: reader re-sent at high effort'])
 })
 
 test('a turn with no usage and an empty answer still closes its row on both modes', async ($, on) => {
@@ -438,9 +590,8 @@ test('a turn with no usage and an empty answer still closes its row on both mode
   await step($, 'a1', 'mystery')
   await $.turn.complete(complete('a1', 'answer'))
 
-  expect((await texts($)).slice(3, 5)).toEqual(['✓ general-purpose mystery', '0:00'])
+  expect((await content($))[1]).toBe('✓ general-purpose · mystery  0:00')
   await extended($)
-  const lines = await texts($)
-  expect(lines).toContain('✓ done 0:00')
-  expect(lines).toContain('general-purpose done · 0:00')
+  expect(await content($)).toContain('✓ general-purpose · mystery  0:00')
+  expect(await texts($)).toContain('general-purpose done · 0:00')
 })
