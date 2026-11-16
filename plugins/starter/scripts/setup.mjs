@@ -4,14 +4,13 @@
 // hook injects them.
 //
 //   node setup.mjs check [--data <plugin data dir>]   report what is installed, as JSON
-//   node setup.mjs apply [--rules on|off] [--remove-old-rules] [--base-ref head|fresh [--scope project|user]]
-//                        [--context7] [--obscura] [--review-gate on|off] [--data <plugin data dir>]
+//   node setup.mjs apply [--rules on|off] [--remove-old-rules] [--context7] [--obscura] [--review-gate on|off]
+//                        [--data <plugin data dir>]
 //   node setup.mjs skip|unskip review-md|project-setup --data <plugin data dir>   stop or resume asking about it in this project
 //
 // It writes flags in the plugin's data dir (rules off, review gate off), user-scope MCP servers (context7, obscura)
-// through `claude mcp add`, worktree.baseRef in the user's settings.json or, with the default project scope, the
-// current project's .claude/settings.local.json, and removes the old marked copy of the rules (versions before 0.8)
-// from the user's CLAUDE.md. Files it changes are backed up next to themselves first, with a timestamp, so no backup
+// through `claude mcp add`, and removes the old marked copy of the rules (versions before 0.8) from the user's
+// CLAUDE.md. Files it changes are backed up next to themselves first, with a timestamp, so no backup
 // is ever overwritten. An old block with unbalanced or out-of-order markers is reported and left alone.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -102,16 +101,6 @@ const failure = result => (result.stderr || result.error?.message || `exit ${res
 // Registered in any scope: a context7 the user added themselves counts, so setup never adds a second one.
 const mcpRegistered = name => claude(['mcp', 'get', name]).status === 0
 
-// The settings files for worktree.baseRef, lowest precedence first: user, then the project's shared and local files.
-const projectSettings = name => join(process.cwd(), '.claude', name)
-function baseRefs() {
-  const read = file => readSettings(file, file === settingsFile).worktree?.baseRef ?? null
-  const user = read(settingsFile)
-  const project = read(projectSettings('settings.json'))
-  const local = read(projectSettings('settings.local.json'))
-  return { user, project, local, effective: local ?? project ?? user ?? 'fresh (default)' }
-}
-
 // Enabled in the effective settings, from any marketplace: the project's local settings override its shared ones,
 // which override the user's.
 function pluginEnabled(name) {
@@ -129,7 +118,6 @@ function check(dataDir) {
     node: process.version,
     rules: rulesOff(dataDir) ? 'off' : 'on',
     oldRulesBlock: oldBlockState(),
-    worktreeBaseRef: baseRefs(),
     context7Mcp: mcpRegistered('context7'),
     obscuraBinary: findObscura() || null,
     obscuraMcp: mcpRegistered('obscura'),
@@ -175,24 +163,6 @@ function apply(options) {
     }
   }
 
-  if (options.baseRef) {
-    // Project scope writes the project's own, personal settings.local.json, so `claude --worktree` sessions in
-    // other projects keep starting from a clean default branch.
-    const file = options.scope === 'user' ? settingsFile : projectSettings('settings.local.json')
-    const settings = readSettings(file)
-    if (settings.worktree?.baseRef !== options.baseRef) {
-      backup(file)
-      mkdirSync(join(file, '..'), { recursive: true })
-      settings.worktree = { ...settings.worktree, baseRef: options.baseRef }
-      writeFileSync(file, JSON.stringify(settings, null, 2) + '\n')
-      done.push(`worktree.baseRef set to "${options.baseRef}" in ${file}`)
-    }
-    const effective = baseRefs().effective
-    if (effective !== options.baseRef) {
-      done.push(`note: a higher-precedence settings file still sets worktree.baseRef to "${effective}" for this project`)
-    }
-  }
-
   if (options.reviewGate) {
     mkdirSync(options.dataDir, { recursive: true })
     const flag = join(options.dataDir, 'review-gate-off')
@@ -208,7 +178,7 @@ function apply(options) {
     if (mcpRegistered('context7')) {
       done.push('context7 MCP already registered')
     } else {
-      const add = claude(['mcp', 'add', '--scope', 'user', '--transport', 'http', 'context7', 'https://mcp.context7.com/mcp'])
+      const add = claude(['mcp', 'add', '-s', 'user', '--transport', 'http', 'context7', 'https://mcp.context7.com/mcp'])
       done.push(add.status === 0 ? 'context7 MCP registered (user scope): https://mcp.context7.com/mcp' : `context7 MCP registration failed: ${failure(add)}`)
     }
   }
@@ -220,7 +190,7 @@ function apply(options) {
     } else if (mcpRegistered('obscura')) {
       done.push('obscura MCP already registered')
     } else {
-      const add = claude(['mcp', 'add', '--scope', 'user', 'obscura', '--', binary, 'mcp'])
+      const add = claude(['mcp', 'add', '-s', 'user', 'obscura', '--', binary, 'mcp'])
       done.push(add.status === 0 ? `obscura MCP registered (user scope): ${binary} mcp` : `obscura MCP registration failed: ${failure(add)}`)
     }
   }
@@ -233,11 +203,6 @@ const dataDir = value('--data')
 if (command === 'check') {
   console.log(JSON.stringify(check(dataDir), null, 2))
 } else if (command === 'apply') {
-  const baseRef = value('--base-ref')
-  if (rest.includes('--base-ref') && !['head', 'fresh'].includes(baseRef)) {
-    console.error('--base-ref takes head or fresh')
-    process.exit(1)
-  }
   const rules = value('--rules')
   if (rest.includes('--rules') && !['on', 'off'].includes(rules)) {
     console.error('--rules takes on or off')
@@ -245,11 +210,6 @@ if (command === 'check') {
   }
   if (rules && !dataDir) {
     console.error('--rules needs --data <plugin data dir>')
-    process.exit(1)
-  }
-  const scope = value('--scope') || 'project'
-  if (!['project', 'user'].includes(scope)) {
-    console.error('--scope takes project or user')
     process.exit(1)
   }
   const reviewGate = value('--review-gate')
@@ -261,7 +221,7 @@ if (command === 'check') {
     console.error('--review-gate needs --data <plugin data dir>')
     process.exit(1)
   }
-  const options = { rules, removeOldRules: rest.includes('--remove-old-rules'), baseRef, scope, context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), reviewGate, dataDir }
+  const options = { rules, removeOldRules: rest.includes('--remove-old-rules'), context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), reviewGate, dataDir }
   for (const line of apply(options)) {
     console.log(line)
   }
@@ -280,6 +240,6 @@ if (command === 'check') {
   }
   console.log(command === 'skip' ? `${step}: declined for ${project.root} (and its worktrees)` : `${step}: back to unknown for ${project.root} (and its worktrees)`)
 } else {
-  console.error('usage: setup.mjs check [--data <dir>] | skip|unskip review-md|project-setup --data <dir> | apply [--rules on|off] [--remove-old-rules] [--base-ref head|fresh [--scope project|user]] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
+  console.error('usage: setup.mjs check [--data <dir>] | skip|unskip review-md|project-setup --data <dir> | apply [--rules on|off] [--remove-old-rules] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
   process.exit(1)
 }

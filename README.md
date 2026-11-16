@@ -1,8 +1,8 @@
 # claude-starter
 
-A small Claude Code setup. It asks before it assumes, reviews what it changed, and cleans up after itself. Every piece that changes how Claude works was measured before it shipped.
+A small Claude Code setup. It asks before it assumes, reviews risky changes, and gives a piece of work a named cycle: a plan file, a clean-context build, and reviews that start fresh.
 
-[![version 0.9.7](https://img.shields.io/badge/version-0.9.7-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.10.0](https://img.shields.io/badge/version-0.10.0-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -11,61 +11,98 @@ claude plugin install starter@claude-starter
 
 Works from your next session. Nothing is written to your `CLAUDE.md`. Needs Node.js 18+.
 
-## How it works
+## How to use
 
-![How claude-starter works. Hooks load the rules at session start, log every subagent call and run the review gate at stop. You shape an idea with /grill, visual-plan and /review-setup. The lead makes small fixes itself and picks a role by the type of task: locator (Haiku) finds and lists, reader (Opus, medium) reads and reports, writer (Sonnet, high) changes files and is sent again on Opus when its checks fail twice, reviewer (Opus, high) checks with a fresh context and REVIEW.md. For a task that fits no role the lead picks the model and effort itself. diff-walkthrough, /clean-worktrees and /monthly-review come after.](assets/how-it-works.svg)
+**Most days: do nothing.** Ask, fix and explore as you always do. The rules and the review gate work in the background.
 
-You talk to one session, the lead. It asks what it can't look up, plans, and hands the work out. It keeps short, dependent edits and delegates the rest, so its context stays free for decisions. Its own edits are budgeted per request (3 files or 60 changed lines); past that the rest goes to a `writer` automatically.
+**For real work, start a cycle:**
 
-- **Reading fans out.** A Haiku `locator` finds and lists files, Explore does wide reading, and web research goes through obscura or WebSearch. Only conclusions come back.
-- **Writing never overlaps.** Independent pieces each get their own writer, in parallel, on Sonnet at high effort; a writer is re-sent on Opus when its checks fail twice. No two writers own the same file: parallel agents writing the same code fail at the merge ([ParallACT](https://arxiv.org/abs/2611.00314): 62% → 16% on conflicting tasks).
-- **Checking starts fresh.** For risky code (network, permissions, stored data), a reviewer that didn't write it reads the diff, and `REVIEW.md` first if your project has one. A clean context catches what the writer can't see ([Cognition, 2026](https://cognition.com/blog/multi-agents-working)).
+```
+/starter:cycle add rate limiting to the public API
+```
+
+1. **It asks.** A few questions at a time, until the decisions are yours and not guesses.
+2. **It writes the plan** to `docs/plans/rate-limiter.md`. Every item carries a command that proves it is done.
+3. **A reviewer reads the plan, then you do.** Nothing is built until you approve.
+4. **A writer builds it** in a clean context, on the branch `cycle/rate-limiter`, ticking each item when its check passes.
+5. **A reviewer reads the code.** The writer fixes what it finds.
+6. **The probe runs every check** and shows you the output.
+
+**Watch it from the side** with `/phase`:
+
+```
+rate-limiter                             4/6
+
+ ━━●━━━━━━━●━━━━━━━●━━━━━━━◉╌╌╌╌╌╌╌○╌╌╌╌╌╌╌○
+ gather  plan   review   build  review probe
+
+ ▍ Build                                4:12
+ ▍ writer · Sonnet 5.5 · high
+ ▍ ⠹ Edit limiter.ts
+ ▍ checks ███████░░░░░░░░░ 3/7
+
+ ✓ plan review  2 found, 2 settled
+ ✓ plan         docs/plans/rate-limiter.md
+ ✓ gather       3 decisions
+
+ next: code review · probe
+```
+
+| You want to | Type |
+|---|---|
+| Start a piece of work | `/starter:cycle <what you want>` |
+| Pick it up in a new session | `/starter:cycle` |
+| See where it stands | `/phase` |
+| Stop it | `/starter:cycle off` |
+| Think an idea through first | `/starter:grill <the idea>` |
+| Teach reviews what is risky here | `/starter:review-setup` |
+
+The plan file is the memory, not the conversation: close the session, come back tomorrow, and the cycle continues from the phase the file says.
+
+## The cycle
+
+The cycle is off by default. You start it for one piece of work with `/starter:cycle <work>`; questions and small fixes never enter it. The session you talk to, the lead, moves the work through six phases and hands off through a plan file, `docs/plans/<slug>.md`, so the build and the reviews start in a clean context instead of the lead's long one.
+
+```mermaid
+flowchart LR
+    A["gather<br/>lead, with you"] --> B["plan<br/>lead writes the plan file"]
+    B --> C["plan review<br/>reviewer, once; then you approve"]
+    C --> D["build<br/>writer, on cycle/slug"]
+    D --> E["code review<br/>reviewer; fixes go back to the writer"]
+    E --> F["probe<br/>lead runs every check; reviewer tries to break risky code"]
+```
+
+- **The plan file is the contract.** It holds the decisions and a list of items, each with a check, a command that passes when the item is done. The writer ticks an item only after its check passes. The lead re-reads the file at every phase, so a new session can resume with `/starter:cycle`.
+- **Roles are named, never forks.** `writer` (Sonnet, high effort) builds from the plan file. `reviewer` (Opus, medium) reviews the plan, then the code against the plan and `REVIEW.md`. `reader` (Sonnet, medium) does wide reading. A fork would inherit the lead's whole context, which is what the cycle avoids.
+- **Work stays on a branch.** The lead creates `cycle/<slug>` and commits there after each phase; nothing is pushed or merged unless you ask.
+
+## Always on
+
+Two things work in every session, with no cycle started:
+
+- **The rules**, about 450 words injected at session start: ask before assuming, check the docs, route web research, delegate wide reading to `reader`, and verify before saying done. A failing test or command comes before a bug fix, every review finding needs evidence, and after three review rounds on one change the lead asks you whether the approach is right. [Read them](plugins/starter/rules.md).
+- **The review gate**, a `Stop` hook. If the session changed enough code and no review ran, it asks for one, once. When the change is not risky (no network, permissions or stored data), Claude says so in one line and stops.
 
 ## What's inside
 
 | Piece | What it does |
 |---|---|
-| Working rules | About 1,000 tokens at session start: ask before assuming, check the docs, delegate, verify before saying done |
-| Review gate | A `Stop` hook. If the session changed enough code and no review ran, it asks for one, once |
-| Role agents | `locator` (Haiku) finds and lists, `reader` (Opus, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, high) checks with a fresh context. The lead picks the role; the role fixes model and effort |
-| `/subagents` | Opens a live side panel of subagents, closed by default: compact shows each running agent as a card with its current tool, a duration bar, tokens and estimated cost, and each finished one as a single line, and extended (`/subagents extended`, or `m` in the panel) adds the lead card, READ/WRITE/CHECK lanes and an events feed |
-| `/solo` | `/solo on` runs everything in the main session: no delegation rules, no edit budget; `/solo off` restores orchestration |
-| `/starter:fan-out` | Hands an approved plan to a workflow outside your session: one builder, then one fresh reviewer |
+| Working rules | The always-on rules above |
+| Review gate | The `Stop` hook above |
+| `/starter:cycle` | `/starter:cycle <work>` starts a cycle and writes its plan file; with no argument it resumes the open one; `off` stops it |
+| Role agents | `reader` (Sonnet, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, medium) checks a plan or a change with a fresh context. Each role fixes its model and effort |
+| `/phase` | Opens a side pane: `/phase` shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open; `/phase` opens and closes it, and a pane you closed stays closed for that plan |
+| `visual-plan` | Writes a plan in the plan-file format first; an optional visual page of it shows diagrams, the API contract, the data model, items with their checks and open questions |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
-| `visual-plan` | Turns a plan into a visual contract: diagrams, API contract, data model, open questions |
 | `/starter:review-setup` | Reads your repo and drafts a short `REVIEW.md`: what failure looks like here, what is risky, what to skip |
-| `diff-walkthrough` | Turns a diff into a slide-style tour you step through until you know the change. Needs `uv` |
 | `/starter:clean-worktrees` | Removes clean, merged worktrees and branches, never through a symlink into your checkout |
 | `/starter:monthly-review` | Checks `/insights` against your setup, applies at most two changes, prunes stale memory |
-| `/starter:setup` | Optional add-ons (context7, obscura, i-have-adhd, ponytail) and turning pieces off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip project-setup` |
-
-## When fan-out runs
-
-Never on its own. For an approved plan of three or more parts, the lead may suggest it; it starts only when you agree or type `/starter:fan-out`. The workflow then runs one builder and one reviewer. Parallel workers are offered only for a plan too big for one context, or when you ask for them and the parts are unrelated modules, and always with a cost estimate first. Parts that touch the same file are merged into one worker by the script, not by a model.
-
-## Review that converges
-
-An agent writer and an agent reviewer can keep each other busy all night. The rules stop that:
-
-- Depth follows the risk tier in `REVIEW.md`. Low risk needs only your checks; high risk gets a deep review and is flagged for a person.
-- From the second round on, only the new diff is reviewed, and a settled finding is never raised again.
-- One instance found means every instance of that bug in the change is fixed.
-- A bug the change didn't introduce is reported as pre-existing and left alone.
-- After three rounds, the lead stops and asks you whether the approach is right.
-
-## Measured
-
-| | |
-|---|---|
-| Sonnet runs the review rule on its own | 4 of 12 sessions; with the gate, 6 of 6 |
-| Bugs the fan-out review reproduced and fixed | 16, across 3 runs |
-| Opus main-session cost on a large plan | $1.02–1.50, then $0.11–0.24 once coordination moved into a workflow |
-
-Small samples: read them as a direction. Method, more numbers and what isn't measured yet are in [docs/DETAILS.md](docs/DETAILS.md).
+| `/starter:setup` | Optional add-ons (context7, obscura, i-have-adhd, ponytail) and turning the rules or the gate off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip project-setup` |
 
 ## Turn things off
 
-Run `/starter:setup`, or drop the review gate in `~/.claude/settings.json`:
+- **The cycle:** type nothing. It only runs when you start it, and `/starter:cycle off` stops the open one.
+- **The rules and the review gate:** run `/starter:setup`, or drop the gate in `~/.claude/settings.json`:
 
 ```json
 { "env": { "CLAUDE_STARTER_REVIEW_GATE": "off" } }
@@ -73,4 +110,4 @@ Run `/starter:setup`, or drop the review gate in `~/.claude/settings.json`:
 
 ---
 
-[Details and evidence](docs/DETAILS.md) · [The rules, verbatim](plugins/starter/rules.md) · Tests: `node --test test/*.mjs` · MIT
+[Details and evidence](docs/DETAILS.md) · [The rules, verbatim](plugins/starter/rules.md) · Tests: `node --test test/scripts.test.mjs` and `claude plugin test plugins/starter` · MIT

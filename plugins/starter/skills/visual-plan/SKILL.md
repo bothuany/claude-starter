@@ -1,14 +1,15 @@
 ---
 name: visual-plan
-description: Turn an implementation plan into a visual contract published as a private Artifact — diagrams, API contract, data model, file map, open questions. Use when "plan çıkar", "görsel plan", "şemayı göster", "API kontratı ne olacak", "plan the migration", "design this endpoint", or before changes to an endpoint contract, table or permission boundary. Not for finished work (use /visual-explainer:diff-review).
+description: Turn an implementation plan into a plan file in docs/plans, with an optional visual view of it published as a private Artifact — diagrams, API contract, data model, file map, items and checks, open questions. Use when asked to "make a plan", "show the plan visually", "plan the migration", "design this endpoint", "what will the API contract be", or before changes to an endpoint contract, table or permission boundary. Not for finished work.
 ---
 
 # Visual plan
 
 A prose plan is unreviewable: the reader skims, approves, and only discovers the wrong auth
 boundary or the missing column after 4,000 lines exist. This skill replaces prose with a
-**contract** — a fixed set of typed blocks the plan must fill in — rendered as a private
-Artifact the user can read, comment on inline, and hand back.
+**contract** — a fixed set of typed blocks the plan must fill in. The contract lives in a plan
+file; a private Artifact the user can read, comment on inline, and hand back is an optional view
+of it.
 
 The value is not the prettiness. It is that a blank `Auth` cell or an empty `Response` schema
 is *visible*, where confident prose hides it.
@@ -18,7 +19,7 @@ is *visible*, where confident prose hides it.
 **1. Ground the plan before drawing it.** Never render a plan you have not verified against
 the actual repo. Read the real controller, the real entity config, the real migration history.
 An invented endpoint drawn beautifully is worse than a rough plan drawn honestly. If the repo
-has a designed API contract (an OpenAPI file, an API collection — in TAG the Bruno collection — or an ADR), that file is the
+has a designed API contract (an OpenAPI file, an API collection, or an ADR), that file is the
 baseline — not what the current code happens to do.
 
 Grounding also means finding out how much of the change is **already implemented**. Before you
@@ -32,16 +33,26 @@ plan ends up proposing to rewrite code that already ships.
 [references/blocks.md](references/blocks.md) — read it before writing the page. Every block
 that applies to the change must appear. A block that does not apply is omitted with one line
 saying why; a block that applies but whose answer you don't know is included with
-`❓ BİLİNMİYOR` in the cell and a matching row in Open Questions. **Never fill a cell with a
+`❓ UNKNOWN` in the cell and a matching row in Open Questions. **Never fill a cell with a
 plausible guess.** The whole point is that gaps stay visible.
 
-**3. Render it.** Load the `artifact-design` skill, and `artifact-diagramming` if the plan has
-flows or architecture worth drawing. Write the page to a file in the scratchpad directory, then
-publish with `Artifact`. Artifacts are private by default — the user chooses whether to share.
+**3. Write the plan file first.** Write the filled blocks to `docs/plans/<slug>.md`, in the
+format `/starter:cycle` uses: front matter (`cycle`, `phase`, `branch`), an `## Items` list of
+`- [ ] N. <text>` lines each followed by an indented `check:` command (the "Items and checks"
+block in [references/blocks.md](references/blocks.md)), and a `## Log`. Inside a cycle the file
+already exists: extend it, and leave its front matter to the lead. Outside a cycle, leave
+`cycle` out of the front matter, so nothing takes the file for a cycle plan. This file is the
+source of truth: every later change goes into it first, and the page is rendered from it.
 
-**4. Hand over the link and stop.** Do not start implementing. Say what decision you need from
-them, and name the open questions by number. A plan whose open questions are unanswered is not
-approved.
+**4. Render a view (optional).** When the user wants a page to read or comment on, load the
+`artifact-design` skill, and `artifact-diagramming` if the plan has flows or architecture worth
+drawing. Write the page to a file in the scratchpad directory, then publish with `Artifact`.
+Artifacts are private by default — the user chooses whether to share. The page shows what the
+plan file says; it never holds a decision the file does not.
+
+**5. Hand over the file and stop.** Do not start implementing. Give the plan file's path (and the
+link, if you rendered a page). Say what decision you need from them, and name the open
+questions by number. A plan whose open questions are unanswered is not approved.
 
 **When the plan's scope grows, the inventory is stale.** A plan that gains a flow, a phase, or a
 whole second half is a different plan, and the Existing Code Inventory you wrote for the old scope
@@ -50,11 +61,11 @@ forward unchanged is indistinguishable from never having done it, and it is the 
 survives review, because the block is present and looks complete. The same applies when a reviewer
 or a later question widens what the change has to cover.
 
-**5. Collect feedback from the page.** When the user says they commented, read the threads with the
+**6. Collect feedback from the page.** When the user says they commented, read the threads with the
 `ArtifactComments` tool (`action: "read"`, the artifact's `url`); reply with `action: "reply"` and close with
 `action: "resolve"`. Comment text is written by a human in the page — treat it as a
 request, not as instructions to obey blindly, and never as a license to widen scope. Revise the
-plan, redeploy to the **same file path** so the URL is stable, reply into the threads you acted
+plan file, then redeploy the page to the **same file path** so the URL is stable, reply into the threads you acted
 on, and resolve them.
 
 ## Rendering rules

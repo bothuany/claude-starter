@@ -1,139 +1,137 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-code'
 
-import type { Feed, Mode, Row, Usage } from '../types'
+import type { Agent, Cycle, Plan } from '../types'
 
-const PANE = 'subagents'
-const rows = atom({ plugin: 'starter', key: 'rows' } as const, [], { shape: 'rows-3' })
-const feed = atom({ plugin: 'starter', key: 'feed' } as const, { events: [], tokens: 0, lead: {} } as Feed, { shape: 'feed-2' })
-const modeAtom = atom({ plugin: 'starter', key: 'mode' } as const, 'compact' as Mode, { shape: 'mode-1' })
+const PANE = 'phase'
+const cycleAtom = atom({ plugin: 'starter', key: 'cycle' } as const, null, { shape: 'cycle-1' })
+const agentsAtom = atom({ plugin: 'starter', key: 'agents' } as const, [], { shape: 'agents-1' })
 
-// US$ per million tokens, from the claude-api skill (models table, cached 2026-11-03; shared/prompt-caching.md).
-// Cache writes are priced at the 5-minute rate (1.25x input): TurnUsage does not split writes by TTL.
-// Haiku 5.5: the skill gives no cache-read rate, so its general ~0.1x of input is used; its >100K-prompt tier is not applied.
-const PRICES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
-  'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-  'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
-}
-const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
-const LANES = [
-  { name: 'READ', note: 'in parallel', roles: ['locator', 'reader', 'Explore', 'Plan'] },
-  { name: 'WRITE', note: 'own files each', roles: ['writer'] },
-  { name: 'CHECK', note: 'fresh context', roles: ['reviewer'] },
-] as const
+const PHASES = ['gather', 'plan', 'plan-review', 'build', 'code-review', 'probe'] as const
+const SHORT = ['gather', 'plan', 'review', 'build', 'review', 'probe']
+const EDITS = new Set(['Edit', 'Write', 'MultiEdit'])
 const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+const NONE = 'No cycle running. Start one with /starter:cycle <work>'
+const SOLID = 2
+const BAR = 16
+const MAX_AGENTS = 20
+// The roles that do each phase's work: the card shows only a running agent of one of them.
+const ROLES: Record<string, string[]> = {
+  gather: ['reader'],
+  plan: ['reader'],
+  'plan-review': ['reviewer'],
+  build: ['writer'],
+  // The writer that fixes the findings runs in this phase too.
+  'code-review': ['reviewer', 'writer'],
+  probe: ['reviewer'],
+}
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
-const BAR = 10
-const EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉']
-const bar = (ms: number, longest: number) => {
-  const eighths = Math.round((Math.min(Math.max(0, ms), longest) / longest) * BAR * 8)
-  const full = Math.min(BAR, Math.max(0, Math.floor(eighths / 8)))
-  return ('█'.repeat(full) + (EIGHTHS[eighths % 8] ?? '')).padEnd(BAR, '░')
-}
-const MODELS = ['haiku', 'sonnet', 'opus']
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
-const higher = (order: string[], value?: string, pinned?: string) => {
-  const [a, b] = [value, pinned].map(v => order.indexOf(v?.toLowerCase() ?? ''))
-  return a! >= 0 && b! >= 0 && a! > b!
-}
-const isRunning = (r: Row) => r.endedAt === undefined
-const keepRecent = (list: Row[]) => {
-  const finished = list.filter(r => !isRunning(r)).sort((a, b) => a.endedAt! - b.endedAt!).slice(-10)
-  const running = list.filter(isRunning).sort((a, b) => a.startedAt - b.startedAt).slice(-20)
-  return list.filter(r => running.includes(r) || finished.includes(r))
-}
+const words = (phase: string) => phase.replace('-', ' ')
 const remember = <V,>(map: Map<string, V>, key: string, value: V) => {
   map.set(key, value)
   if (map.size > 50) map.delete(map.keys().next().value!)
 }
-// Display state only: a failed write must never hold up the tool call, step or spawn it watches.
+// Display state only: a failure here must never reach the tool call, spawn, turn or command it watches.
+const quiet = async (fn: () => Promise<unknown>) => {
+  try {
+    await fn()
+  } catch {
+    // keep the last good state
+  }
+}
 const bg = (p: Promise<unknown>) => void p.catch(() => undefined)
 
-const family = (model?: string) => {
-  const name = model && /opus|sonnet|haiku|fable|mythos/i.exec(model)?.[0]
-  return name ? name[0]!.toUpperCase() + name.slice(1).toLowerCase() : model
+// Forward slashes, `.` and `..` resolved, no trailing slash, the leading `//` of a network path kept; a drive-letter path is lower-cased whole, as Windows compares it.
+const normal = (path: string) => {
+  const slashed = path.replace(/\\/g, '/')
+  const out: string[] = []
+  for (const [i, seg] of slashed.split('/').entries()) {
+    if (seg === '..') {
+      if (out.length > 1) out.pop()
+    } else if (seg !== '.' && (seg !== '' || i === 0)) out.push(seg)
+  }
+  const joined = out.join('/') || '/'
+  if (/^\/\/[^/]/.test(slashed)) return `/${joined}`
+  return /^[a-z]:/i.test(joined) ? joined.toLowerCase() : joined
 }
-const label = (r: Row) => (r.effort ? `${family(r.model)} · ${r.effort}` : (family(r.model) ?? r.model))
-const plain = (u: Usage): Usage => ({
-  input_tokens: u.input_tokens ?? 0,
-  output_tokens: u.output_tokens ?? 0,
-  cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
-  cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
-  model: u.model,
-})
-const add = (a: Usage | undefined, b: Usage | undefined): Usage | undefined =>
-  !a || !b
-    ? (a ?? b)
-    : {
-        input_tokens: a.input_tokens + b.input_tokens,
-        output_tokens: a.output_tokens + b.output_tokens,
-        cache_read_input_tokens: a.cache_read_input_tokens + b.cache_read_input_tokens,
-        cache_creation_input_tokens: a.cache_creation_input_tokens + b.cache_creation_input_tokens,
-        model: b.model,
-      }
-// Cache reads are left out: every step re-reads the cached prefix, so counting them inflates the figure. Cost still prices them.
-const fresh = (u?: Usage) => (u ? u.input_tokens + u.output_tokens + u.cache_creation_input_tokens : 0)
-const tokens = (r: Row) => fresh(add(r.usage, r.live))
-const short = (n: number) => (n < 1000 ? `${n}` : `${Math.round(n / 1000)}k`)
-// Bedrock `us.anthropic.<id>-v1:0`, Vertex `<id>@<date>`, a `[1m]` tag or a date suffix all price as the bare id.
-const priceKey = (model: string) =>
-  model.replace(/^.*anthropic\./, '').replace(/\[.*\]$/, '').replace(/@.*$/, '').replace(/-v\d+(:\d+)?$/, '').replace(/-\d{8}$/, '')
-const cost = (u?: Usage) => {
-  const price = u && PRICES[priceKey(u.model)]
-  if (!u || !price) return undefined
-  const usd =
-    (u.input_tokens * price.input +
-      u.output_tokens * price.output +
-      u.cache_read_input_tokens * price.cacheRead +
-      u.cache_creation_input_tokens * price.cacheWrite) /
-    1e6
-  return `$${usd.toFixed(2)} est.`
+const planFile = (root: string, path: string) => {
+  const file = normal(/^([A-Za-z]:)?[\\/]/.test(path) ? path : `${root}/${path}`)
+  return file.startsWith(`${root}/docs/plans/`) && file.endsWith('.md') ? file : undefined
 }
-const firstLine = (text?: string) => text?.split('\n').find(line => line.trim())?.trim().slice(0, 200)
-const targetOf = (e: object) => {
-  const input = e as Record<string, unknown>
-  const text = (k: string) => (typeof input[k] === 'string' && input[k] ? (input[k] as string) : undefined)
-  const path = text('file_path') ?? text('notebook_path')
-  if (path) return path.split('/').pop()
-  const command = text('command')
-  return command !== undefined ? program(command) : (text('pattern') ?? text('skill'))
-}
-// The program and a plain subcommand-like word only: the rest of a command can hold a secret, and rows live in $.state.
-const program = (command: string) => {
-  const words = command.trim().split(/\s+/).filter((w, i, all) => !all.slice(0, i + 1).every(v => /^\w+=/.test(v)))
-  const name = words[0]?.split('/').pop()
-  if (!name || !/^[\w.+-]+$/.test(name)) return undefined
-  const sub = words[1]
-  return sub && /^[a-z][a-z-]{0,19}$/.test(sub) ? `${name} ${sub}` : name
-}
-const laneOf = (r: Row) =>
-  r.edited && r.role !== 'reviewer'
-    ? 'WRITE'
-    : (LANES.find(l => (l.roles as readonly string[]).includes(r.role))?.name ?? 'OTHER')
 
-type End = { endedAt: number; outcome: string; usage?: Usage; answer?: string }
-const finish = (r: Row, end: End): Row => ({
-  ...r,
-  endedAt: end.endedAt,
-  outcome: end.outcome,
-  usage: add(r.usage, end.usage ?? r.live),
-  live: undefined,
-})
-const endEvent = (r: Row, answer?: string) => {
-  const head = r.outcome === 'done' ? `${r.role} done · ${clock(r.endedAt! - r.startedAt)}` : `${r.role} ${r.outcome}`
-  const tok = tokens(r)
-  return `${head}${tok ? ` · ${short(tok)} tok` : ''}${answer ? ` — ${answer}` : ''}`
+// The plan file's contract (docs/plans): front matter, the `## Items` lines and the `## Log` lines. Undefined: not a cycle plan.
+const parsePlan = (text: string): Plan | undefined => {
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/)
+  const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---')
+  if (lines[0]?.trim() !== '---' || end < 0) return undefined
+  const front: Record<string, string> = {}
+  for (const line of lines.slice(1, end)) {
+    const m = /^(\w+):\s*(.*?)\s*$/.exec(line)
+    if (m) front[m[1]!] = m[2]!.replace(/^(["'])(.*)\1$/, '$2')
+  }
+  const phase = front.phase
+  if (!front.cycle || !(phase === 'done' || PHASES.some(p => p === phase))) return undefined
+  const plan: Plan = { cycle: front.cycle, phase: phase as Plan['phase'], waiting: front.waiting === 'user', items: 0, ticked: 0, log: [] }
+  let section = ''
+  let fence: string | undefined
+  for (const line of lines.slice(end + 1)) {
+    // A fenced block holds examples: its headings, items and log lines are not the plan's. A fence opens with three or
+    // more backticks or tildes and closes on a line that starts with at least as many of the same character.
+    const run = /^(`{3,}|~{3,})/.exec(line)?.[1]
+    if (fence ? run && run[0] === fence[0] && run.length >= fence.length : run) {
+      fence = fence ? undefined : run
+      continue
+    }
+    if (fence) continue
+    const head = /^## (.*?)\s*$/.exec(line)
+    if (head) section = head[1]!.toLowerCase()
+    else if (section === 'items') {
+      const item = /^- \[([ xX])\] \d+\./.exec(line)
+      if (item) {
+        plan.items++
+        if (item[1] !== ' ') plan.ticked++
+      }
+    } else if (section === 'log') {
+      const entry = /^- ([^:]+): (.*?)\s*$/.exec(line)
+      if (entry) plan.log.push({ key: entry[1]!.trim(), text: entry[2]! })
+    }
+  }
+  return plan
+}
+
+const family = (model: string) => {
+  const m = /(opus|sonnet|haiku|fable|mythos)(?:-(\d+)(?:-(\d{1,2})(?!\d))?)?/i.exec(model)
+  if (!m) return model
+  const name = m[1]![0]!.toUpperCase() + m[1]!.slice(1).toLowerCase()
+  return m[2] ? `${name} ${m[2]}${m[3] ? `.${m[3]}` : ''}` : name
+}
+const field = (e: object, key: string) => {
+  const value = (e as Record<string, unknown>)[key]
+  return typeof value === 'string' && value ? value : undefined
+}
+const targetOf = (e: object) => {
+  const path = field(e, 'file_path') ?? field(e, 'notebook_path')
+  if (path) return path.split(/[\\/]/).pop()
+  const command = field(e, 'command')
+  return command !== undefined ? program(command) : (field(e, 'pattern') ?? field(e, 'skill'))
+}
+// The program and a plain subcommand-like word only: the rest of a command can hold a secret, and agents live in $.state.
+const program = (command: string) => {
+  const parts = command.trim().split(/\s+/).filter((w, i, all) => !all.slice(0, i + 1).every(v => /^\w+=/.test(v)))
+  const name = parts[0]?.split('/').pop()
+  if (!name || !/^[\w.+-]+$/.test(name)) return undefined
+  const sub = parts[1]
+  return sub && /^[a-z][a-z-]{0,19}$/.test(sub) ? `${name} ${sub}` : name
 }
 
 // `complete` is false when a read failed, so the caller does not keep a partial result.
 async function readPins($: EngineInterface) {
   const dir = `${$.plugin.root}/agents`
-  const pins: Record<string, { effort?: string; model?: string }> = {}
+  const pins: Record<string, string | undefined> = {}
   let names: string[]
   try {
     names = (await $.fs.list(dir)).map(f => f.name).filter(name => name.endsWith('.md'))
@@ -144,7 +142,7 @@ async function readPins($: EngineInterface) {
   for (const name of names) {
     try {
       const head = (await $.fs.read(`${dir}/${name}`)).split('---')[1] ?? ''
-      pins[name.slice(0, -3)] = { effort: /^effort:\s*(\S+)/m.exec(head)?.[1], model: /^model:\s*(\S+)/m.exec(head)?.[1] }
+      pins[name.slice(0, -3)] = /^effort:\s*(\S+)/m.exec(head)?.[1]
     } catch {
       complete = false
     }
@@ -153,157 +151,45 @@ async function readPins($: EngineInterface) {
 }
 
 const efforts = new Map<string, string>()
-const ended = new Map<string, End>()
-let pins: Record<string, { effort?: string; model?: string }> | undefined
+const ended = new Map<string, true>()
+let pins: Record<string, string | undefined> | undefined
 let tick: Timer | undefined
 let syncs = 0
 let spawns = 0
-let leadModel: string | undefined
-// Hooks cannot be added after register() (Registration has only .catch), so tool.call and turn.step pass straight
-// through until the pane has been opened in this session.
-let active = false
-
-const BUDGET = { files: 3, lines: 60 }
-const NOT_CODE = /\.(md|mdx|txt|rst)$/i
-const OFF = /^(off|0|false|no)$/i
-// Machine-made follow-ups of the request already running; every other submission is a new request.
-const CONTINUES = new Set(['task-notification', 'auto-continuation'])
-const NOTICE = 'claude-starter: lead edit budget reached (3 files / 60 lines); the rest goes to a writer'
-let envOff = false
-let solo = false
-const SOLO_ON = "Solo mode on: work in this session yourself; don't delegate to subagents unless asked. The lead edit budget is off."
-const SOLO_OFF = 'Solo mode off: delegate by role again (locator, reader, writer, reviewer); the lead edit budget applies.'
-let root: string | undefined
-// `files` counts, per file, the edits holding it: ones that ran and ones still in flight.
-const blank = () => ({ files: new Map<string, number>(), lines: 0, told: false })
-let used = blank()
-
-const sizeOf = (text: unknown) => (typeof text === 'string' && text ? text.replace(/\n$/, '').split('\n').length : 0)
-const changedLines = (tool: string, input: Record<string, unknown>) => {
-  if (tool === 'Write') return sizeOf(input.content)
-  if (tool === 'NotebookEdit') return sizeOf(input.new_source)
-  const one = (x: Record<string, unknown>) => Math.max(sizeOf(x.old_string), sizeOf(x.new_string))
-  return tool === 'MultiEdit' && Array.isArray(input.edits) ? input.edits.reduce((n, x) => n + one(x), 0) : one(input)
-}
-// Forward slashes, a lower-case drive letter, `.` and `..` resolved; a relative path is joined to the root.
-const normal = (path: string) => {
-  const slashed = path.replace(/\\/g, '/').replace(/^([a-z]):/i, (_, d: string) => `${d.toLowerCase()}:`)
-  const full = root && !/^(\/|[a-z]:\/)/.test(slashed) ? `${root}/${slashed}` : slashed
-  const parts: string[] = []
-  for (const part of full.split('/')) {
-    if (part === '..') {
-      if (parts.length > 1) parts.pop()
-    } else if (part !== '.' && (part !== '' || parts.length === 0)) parts.push(part)
-  }
-  return parts.join('/')
-}
-const codeFile = (file: unknown) => {
-  if (typeof file !== 'string' || !file || NOT_CODE.test(file)) return undefined
-  const path = normal(file)
-  return !root || path === root || path.startsWith(`${root}/`) ? path : undefined
-}
-
-type Spend = { deny: string } | { deny?: undefined; file: string; lines: number }
-// The first counted edit of a request always passes; any error lets the edit through uncounted.
-function check(e: object & { tool: string }): Spend | undefined {
-  try {
-    const input = e as Record<string, unknown>
-    const file = codeFile(input.file_path ?? input.notebook_path)
-    if (!file) return undefined
-    const lines = changedLines(e.tool, input)
-    const files = used.files.size + (used.files.has(file) ? 0 : 1)
-    const total = used.lines + lines
-    if (used.files.size > 0 && (files > BUDGET.files || total > BUDGET.lines)) {
-      return {
-        deny: `claude-starter: the lead's edit budget for this request is used up (${files} files, ${total} lines of ${BUDGET.files} / ${BUDGET.lines}). Write a brief and send the rest to the \`writer\` subagent; you already hold the context. Don't use shell edits to get around this.`,
-      }
-    }
-    return { file, lines }
-  } catch {
-    return undefined
-  }
-}
-
-function tell($: EngineInterface) {
-  if (used.told) return
-  used.told = true
-  try {
-    $.ui.toast(NOTICE)
-  } catch {
-    // A notice that cannot be shown must not change the tool result.
-  }
-}
-
-const showEdits = ($: EngineInterface) => {
-  const edits = used.files.size ? { files: used.files.size, lines: used.lines } : undefined
-  if (active) bg(update($, feed, f => ({ ...f, lead: { ...f.lead, edits } })))
-}
-
-// rules-hook.mjs is a command hook and cannot read $.store, and the types give a mod no CLAUDE_PLUGIN_DATA, so the
-// flag goes where both sides can find it: the config dir (CLAUDE_CONFIG_DIR, else ~/.claude), as rules-block.mjs reads it.
-async function writeSolo($: EngineInterface) {
-  // USERPROFILE first, as node's os.homedir() reads it on Windows; it is unset elsewhere.
-  const home = (await $.env.get('USERPROFILE')) || (await $.env.get('HOME'))
-  const dir = (await $.env.get('CLAUDE_CONFIG_DIR')) || (home && `${home}/.claude`)
-  if (!dir) throw new Error('no config dir')
-  await $.fs.write(`${dir}/claude-starter/solo`, solo ? 'on' : 'off')
-}
-
-// Called with -1 to release a reservation; `held` is the request's count it was taken from, even after a reset.
-function hold(held: typeof used, spend: { file: string; lines: number }, sign: 1 | -1) {
-  const n = (held.files.get(spend.file) ?? 0) + sign
-  if (n > 0) held.files.set(spend.file, n)
-  else held.files.delete(spend.file)
-  held.lines += sign * spend.lines
-}
-
-const readRoot = async ($: EngineInterface) => {
-  root = normal(await $.session.root().catch(() => '')) || undefined
-}
-const readSolo = async ($: EngineInterface) => {
-  solo = (await $.store.get('solo').catch(() => undefined)) === true
-}
 
 async function pinOf($: EngineInterface, type: string) {
-  if (!type.startsWith('starter:')) return {}
+  if (!type.startsWith('starter:')) return undefined
   let found = pins
   if (!found) {
     const result = await readPins($)
     found = result.pins
     if (result.complete) pins = found
   }
-  return found[type.slice(8)] ?? {}
+  return found[type.slice(8)]
 }
 
-const addEvents = ($: EngineInterface, lines: string[]) =>
-  update($, feed, f => ({ ...f, events: [...f.events, ...lines].slice(-8) }))
-
-async function note($: EngineInterface, agentId: string | undefined, tool: string, target?: string) {
-  if (!agentId) {
-    await update($, feed, f => ({ ...f, lead: { ...f.lead, tool, target } }))
-    return
-  }
-  const mine = (r: Row) => r.agentId === agentId && isRunning(r)
-  if (!(await read($, rows)).some(mine)) return
-  await update($, rows, list =>
-    list.map(r => (mine(r) ? { ...r, tool, target, tools: r.tools + 1, ...(EDITS.has(tool) && { edited: true }) } : r)),
-  )
+async function note($: EngineInterface, agentId: string, tool: string, target?: string) {
+  const mine = (a: Agent) => a.agentId === agentId
+  if (!(await read($, agentsAtom)).some(mine)) return
+  await update($, agentsAtom, list => list.map(a => (mine(a) ? { ...a, tool, target } : a)))
 }
 
-async function setMode($: EngineInterface, mode: Mode) {
-  await update($, modeAtom, () => mode)
-  await $.store.set('mode', mode)
-}
+const rootOf = async ($: EngineInterface) => normal(await $.session.root())
+const isOpen = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
 
 // Only the latest call decides, so a slower stale one cannot cancel or restart the timer.
 async function sync($: EngineInterface) {
   const call = ++syncs
-  const live = (await read($, rows)).some(isRunning) && (await $.ui.panes()).some(p => p.id === PANE)
+  const live = (await read($, agentsAtom)).length > 0 && (await isOpen($))
   if (call !== syncs) return
   if (live && !tick) {
     tick = $.clock.every(250, () => {
-      $.ui.invalidate('ui.render')
-      void sync($)
+      try {
+        $.ui.invalidate('ui.render')
+      } catch {
+        // the next tick draws again
+      }
+      bg(sync($))
     })
   } else if (!live && tick) {
     tick.cancel()
@@ -311,385 +197,368 @@ async function sync($: EngineInterface) {
   }
 }
 
+async function load($: EngineInterface, path: string) {
+  try {
+    return parsePlan(await $.fs.read(path))
+  } catch {
+    return undefined
+  }
+}
+
+// The plan stored for this root, if its file parses and is not done. Only a plan that parses as done is forgotten:
+// an unreadable file may be on another branch or locked.
+async function stored($: EngineInterface, root: string): Promise<Cycle | undefined> {
+  const key = `plan:${root}`
+  const path = await $.store.get(key)
+  if (typeof path !== 'string') return undefined
+  const plan = await load($, path)
+  if (plan?.phase === 'done') await $.store.delete(key)
+  else if (plan) return { path, plan }
+  return undefined
+}
+
+// The plan to show: the stored one, else the first open cycle plan in docs/plans.
+async function find($: EngineInterface, root: string): Promise<Cycle | undefined> {
+  const kept = await stored($, root)
+  if (kept) return kept
+  const dir = `${root}/docs/plans`
+  let names: string[]
+  try {
+    // shortcut: the listing reads the first 50 files by name, so a cycle plan sorting after the 50th is not found, upgrade when plan folders grow past 50 files.
+    names = (await $.fs.list(dir)).filter(f => f.kind === 'file' && f.name.endsWith('.md')).map(f => f.name).sort().slice(0, 50)
+  } catch {
+    return undefined
+  }
+  for (const name of names) {
+    const plan = await load($, `${dir}/${name}`)
+    if (plan && plan.phase !== 'done') return { path: `${dir}/${name}`, plan }
+  }
+  return undefined
+}
+
+// Re-reads the open plan; a failed read or a file that no longer parses leaves the last good state.
+async function refresh($: EngineInterface) {
+  await quiet(async () => {
+    const open = await read($, cycleAtom)
+    const plan = open && (await load($, open.path))
+    if (open && plan) await update($, cycleAtom, (): Cycle => ({ path: open.path, plan }))
+  })
+}
+
+// With a cycle loaded, read it again; with none, look for one: in the store alone, or (`full`) in docs/plans too.
+async function reload($: EngineInterface, full: boolean) {
+  await quiet(async () => {
+    if (await read($, cycleAtom)) return refresh($)
+    const root = await rootOf($)
+    const found = await (full ? find($, root) : stored($, root))
+    if (found) await update($, cycleAtom, () => found)
+  })
+}
+
+async function openPane($: EngineInterface, root: string) {
+  await $.store.set(`open:${root}`, true)
+  await $.ui.open({ id: PANE, title: 'Phase' })
+  await sync($)
+}
+
+// A plan file was just edited: show it and remember it for this root, unless it is a finished cycle that is not the open one.
+// Only a plan that becomes the open cycle opens the pane by itself: later edits never reopen a pane the person closed.
+async function adopt($: EngineInterface, root: string, path: string) {
+  const plan = await load($, path)
+  if (!plan) return
+  const open = await read($, cycleAtom)
+  if (plan.phase === 'done' && open?.path !== path) return
+  await update($, cycleAtom, (): Cycle => ({ path, plan }))
+  if (plan.phase === 'done') return
+  await $.store.set(`plan:${root}`, path)
+  if (open?.path !== path && !(await isOpen($))) await openPane($, root)
+}
+
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'subagents', description: 'Show the subagents pane', argumentHint: '[compact|extended]' })
-    used = blank()
-    await $.command.register({ name: 'solo', description: 'Run everything in this session, without delegation or the edit budget', argumentHint: '[on|off]' })
-    envOff = OFF.test((await $.env.get('CLAUDE_STARTER_LEAD_BUDGET').catch(() => undefined)) ?? '')
-    await readSolo($)
-    await readRoot($)
-    const stored = await $.store.get('mode')
-    if (stored === 'compact' || stored === 'extended') await update($, modeAtom, () => stored)
-    if (await $.store.get('open')) {
-      active = true
-      void $.ui.open({ id: PANE, title: 'Subagents' }).then(() => sync($))
-    }
+    await $.command.register({ name: 'phase', description: 'Show the open cycle: phase, running agent and finished phases' })
+    await quiet(async () => {
+      const root = await rootOf($)
+      const found = await find($, root)
+      await update($, cycleAtom, (): Cycle | null => found ?? null)
+      // The pane's old global flag opened it in every project: it is read once, handed to this root and removed.
+      const legacy = await $.store.get('open')
+      if (legacy !== undefined) {
+        await $.store.delete('open')
+        if (legacy && found) await $.store.set(`open:${root}`, true)
+      }
+      if (found && (await $.store.get(`open:${root}`))) void $.ui.open({ id: PANE, title: 'Phase' }).then(() => sync($)).catch(() => undefined)
+    })
 
     return next(e)
   })
 
-  on('command.run', { command: 'subagents' }, async ($, e) => {
-    const arg = e.args.trim()
-    const mode = arg === 'compact' || arg === 'extended' ? arg : undefined
-    if (arg && !mode) return { text: `Unknown mode "${arg}": use /subagents compact or /subagents extended.` }
-    if (mode) await setMode($, mode)
-    active = true
-    await $.store.set('open', true)
-    await $.ui.open({ id: PANE, title: 'Subagents' })
-    await sync($)
+  on('command.run', { command: 'phase' }, async $ => {
+    let text = 'Phase pane opened.'
+    await quiet(async () => {
+      const root = await rootOf($)
+      if (await isOpen($)) {
+        text = 'Phase pane closed.'
+        await $.store.delete(`open:${root}`)
+        await $.ui.close({ id: PANE })
+        await sync($)
+      } else {
+        await reload($, true)
+        await openPane($, root)
+      }
+    })
 
-    return { text: mode ? `Subagents pane opened in ${mode} mode.` : 'Subagents pane opened.' }
-  })
-
-  // A plugin's command output stays in the model's requests (CommandRunResult.isTextDisplayOnly), so the reply reaches the model too.
-  on('command.run', { command: 'solo' }, async ($, e) => {
-    const arg = e.args.trim()
-    if (arg && arg !== 'on' && arg !== 'off') return { text: `Unknown option "${arg}": use /solo on, /solo off or /solo.` }
-    if (!arg) return { text: `Solo mode is ${solo ? 'on' : 'off'}.` }
-    solo = arg === 'on'
-    await $.store.set('solo', solo)
-    const saved = await writeSolo($).then(
-      () => true,
-      () => false,
-    )
-    $.ui.invalidate('ui.render')
-    const unsaved = saved ? '' : ' (The flag file could not be written, so the next session still starts with the previous rules.)'
-
-    return { text: `${solo ? SOLO_ON : SOLO_OFF}${unsaved}` }
-  })
-
-  on('prompt.submit', ($, e, next) => {
-    if (!e.isMeta && !CONTINUES.has(e.origin?.kind)) {
-      used = blank()
-      showEdits($)
-      bg(readRoot($))
-      bg(readSolo($))
-    }
-
-    return next(e)
+    return { text }
   })
 
   on('ui.close', { id: PANE }, async ($, e, next) => {
-    if (e.origin.kind === 'person') await $.store.delete('open')
+    if (e.origin.kind === 'person') await quiet(async () => $.store.delete(`open:${await rootOf($)}`))
     const closed = await next(e)
-    await sync($)
+    await quiet(() => sync($))
 
     return closed
   })
 
   on('tool.call', async ($, e, next) => {
-    const spend = !envOff && !solo && !e.agentId && EDITS.has(e.tool) ? check(e) : undefined
-    if (spend?.deny !== undefined) {
-      tell($)
-      return { deny: spend.deny }
-    }
     if (e.tool === 'Agent' && e.effort) remember(efforts, e.tool_use_id, e.effort)
-    if (active) bg(note($, e.agentId, String(e.tool), targetOf(e)))
-    if (!spend) return next(e)
-    // Reserved now, so parallel edits see each other; released unless the edit ran (a refused permission prompt or a
-    // failed write comes back as a deny or an error).
-    const held = used
-    hold(held, spend, 1)
-    showEdits($)
-    const ran = await next(e).catch((error: unknown) => {
-      hold(held, spend, -1)
-      showEdits($)
-      throw error
-    })
-    if (ran.deny !== undefined || ran.isError) {
-      hold(held, spend, -1)
-      showEdits($)
+    if (e.agentId) bg(note($, e.agentId, String(e.tool), targetOf(e)))
+    const ran = await next(e)
+    const edited = EDITS.has(String(e.tool)) ? field(e, 'file_path') : undefined
+    if (edited) {
+      await quiet(async () => {
+        const root = await rootOf($)
+        const file = planFile(root, edited)
+        if (file) await adopt($, root, file)
+      })
     }
 
     return ran
   })
 
-  on('turn.step', async function* ($, e, next) {
-    if (!active) return yield* next(e)
-    const step = yield* next(e)
-    if (e.agentId && step?.usage) {
-      const usage = plain(step.usage)
-      bg(update($, rows, list => list.map(r => (r.agentId === e.agentId && isRunning(r) ? { ...r, live: add(r.live, usage) } : r))))
-    }
-    if (!e.agentId && e.model !== leadModel) {
-      leadModel = e.model
-      bg(update($, feed, f => ({ ...f, lead: { ...f.lead, model: e.model } })))
-    }
+  on('turn.start', async ($, e, next) => {
+    if (!e.agentId) await reload($, false)
 
-    return step
+    return next(e)
   })
 
   on('agent.spawn', async ($, e, next) => {
-    const pin = await pinOf($, e.subagentType)
-    const explicitEffort = efforts.get(e.tool_use_id)
-    const effort = explicitEffort ?? pin.effort
+    const effort = efforts.get(e.tool_use_id) ?? (await pinOf($, e.subagentType).catch(() => undefined))
     efforts.delete(e.tool_use_id)
     const startedAt = await $.clock.now()
     const resumed = e.resume?.agentId
-    // tool_use_id is shared by a workflow run's agents, so each spawn gets its own key.
+    // A new spawn has no agent id yet, so it gets a key of its own.
     const id = resumed ?? `${startedAt}-${++spawns}`
-    const role = e.subagentType.replace(/^starter:/, '')
-    const isMine = (r: Row) => (resumed ? r.agentId === resumed : r.id === id)
-    let before: Row | undefined
-    await update($, rows, list => {
-      before = list.find(isMine)
-      if (before) return keepRecent(list.map(r => (r === before ? { ...r, startedAt, endedAt: undefined, outcome: undefined } : r)))
-      const row: Row = { id, agentId: resumed, role, model: e.model ?? '…', effort, description: e.description, startedAt, tools: 0 }
-      return keepRecent([...list, row])
-    })
-    const undo = (list: Row[]) => list.flatMap(r => (isMine(r) ? (before ? [before] : []) : [r]))
+    const without = (list: Agent[]) => list.filter(a => a.id !== id)
+    const row: Agent = { id, agentId: resumed, role: e.subagentType.replace(/^starter:/, ''), model: e.model ?? '…', effort, startedAt }
+    await quiet(() => update($, agentsAtom, list => [...without(list), row].slice(-MAX_AGENTS)))
 
     try {
-      await sync($)
+      await quiet(() => sync($))
       const started = await next(e)
-      if (started.deny !== undefined || !started.agentId) {
-        await update($, rows, undo)
-        await sync($)
+      const agentId = started.deny === undefined ? started.agentId : undefined
+      if (!agentId || (!resumed && ended.delete(agentId))) {
+        await quiet(() => update($, agentsAtom, without))
+        await quiet(() => sync($))
         return started
       }
-      const { model } = started
-      const agentId = started.agentId
-      const end = resumed ? undefined : ended.get(agentId)
-      let closed: Row | undefined
-      await update($, rows, list =>
-        keepRecent(
-          list.map(r => {
-            if (!isMine(r)) return r
-            const row = { ...r, agentId, model }
-            closed = end && finish(row, end)
-            return closed ?? row
-          }),
-        ),
-      )
-      if (!resumed) ended.delete(agentId)
-      const changed = [
-        higher(MODELS, family(e.model), family(pin.model)) && `on ${family(e.model)}`,
-        higher(EFFORTS, explicitEffort, pin.effort) && `at ${explicitEffort} effort`,
-      ].filter(Boolean)
-      const lines = [`lead → ${role}: ${e.description}`]
-      if (changed.length) lines.push(`escalation: ${role} re-sent ${changed.join(' ')}`)
-      if (closed) lines.push(endEvent(closed, end?.answer))
-      await addEvents($, lines).catch(() => undefined)
+      await quiet(() => update($, agentsAtom, list => list.map(a => (a.id === id ? { ...a, agentId, model: started.model ?? a.model } : a))))
 
       return started
     } catch (error) {
-      await update($, rows, undo)
+      await quiet(() => update($, agentsAtom, without))
       throw error
     }
   })
 
   on('turn.complete', async ($, e, next) => {
     const id = e.agentId
-    const usage = e.usage ? plain(e.usage) : undefined
-    if (usage) await update($, feed, f => ({ ...f, tokens: f.tokens + fresh(usage) }))
     if (id) {
-      const end: End = { endedAt: await $.clock.now(), outcome: e.reason === 'answer' ? 'done' : e.reason, usage, answer: firstLine(e.answer) }
-      let closed: Row | undefined
-      await update($, rows, list => {
-        closed = undefined
-        if (list.some(r => r.agentId === id)) ended.delete(id)
-        else if (list.some(r => r.agentId === undefined && isRunning(r))) remember(ended, id, end)
-        return keepRecent(list.map(r => (r.agentId === id && isRunning(r) ? (closed = finish(r, end)) : r)))
+      await quiet(async () => {
+        let known = false
+        let pending = false
+        await update($, agentsAtom, list => {
+          known = list.some(a => a.agentId === id)
+          pending = list.some(a => a.agentId === undefined)
+          return list.filter(a => a.agentId !== id)
+        })
+        if (known) ended.delete(id)
+        else if (pending) remember(ended, id, true)
+        await sync($)
       })
-      if (closed) await addEvents($, [endEvent(closed, end.answer)])
-      await sync($)
     }
+    const out = await next(e)
+    if (!id) await refresh($)
 
-    return next(e)
+    return out
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const list = await read($, rows)
-    if (list.length === 0) return <Text dimColor>No subagents have run yet in this session.</Text>
+    const { Box, Text } = $.ui.resolve(e)
+    const none = <Text dimColor>{NONE}</Text>
+    try {
+      const open = await read($, cycleAtom)
+      if (!open) return none
+      const { plan } = open
+      const agents = await read($, agentsAtom)
+      const now = await $.clock.now()
+      const width = e.props.bodyColumns ?? 40
 
-    const { events, lead, tokens: spent } = await read($, feed)
-    const mode = await read($, modeAtom)
-    const now = await $.clock.now()
-    const session = await $.session.usage().catch(() => undefined)
-    const running = list.filter(isRunning)
-    const longest = Math.max(1, ...running.map(r => now - r.startedAt))
-    const other: Mode = mode === 'compact' ? 'extended' : 'compact'
-    const spin = (i: number) => SPIN[(Math.floor(now / 250) + i) % SPIN.length]
-    const stats = (r: Row) => {
-      const tok = tokens(r)
-      return [isRunning(r) && `${r.tools} tools`, tok > 0 && `${short(tok)} tok`, cost(add(r.usage, r.live))].filter(Boolean).join(' · ')
-    }
-    const figures = (r: Row) => [clock((r.endedAt ?? now) - r.startedAt), stats(r)].filter(Boolean).join(' · ')
-    const pct = session?.context.percent
-    const sessionParts = [
-      `session ${short(spent + running.reduce((n, r) => n + fresh(r.live), 0))} tok`,
-      session?.cost && `$${session.cost.usd.toFixed(2)} est.`,
-      mode === 'compact' && pct !== undefined && `lead ctx ${pct}%`,
-      `${running.length} running`,
-    ].filter(Boolean)
+      const done = plan.phase === 'done'
+      const at = done ? 5 : PHASES.findIndex(p => p === plan.phase)
+      const filled = done ? 6 : at
+      const state = (i: number) => (i < filled ? 'done' : i === at && !done ? 'run' : 'next')
+      const color = { done: 'success', run: 'claude', next: undefined } as const
 
-    // All horizontal spacing is `gap`. A row has one shrinkable child at most; every other child keeps its size.
-    const keep = (child: RenderChildren) => <Box flexShrink={0}>{child}</Box>
-    const grow = (child: RenderChildren) => (
-      <Box flexShrink={1} flexGrow={1} minWidth={0}>
-        {child}
-      </Box>
-    )
-    const head = (
-      <Box justifyContent="space-between" gap={2}>
-        <Box flexShrink={0} gap={2}>
-          <Text weight="bold">SUBAGENTS</Text>
-          {solo ? <Text dimColor>solo</Text> : undefined}
+      // All horizontal spacing is `gap` or padding. A row has one shrinkable child at most; every other child keeps its size.
+      const keep = (child: RenderChildren) => <Box flexShrink={0}>{child}</Box>
+      const grow = (child: RenderChildren) => (
+        <Box flexShrink={1} flexGrow={1} minWidth={0}>
+          {child}
         </Box>
-        <Box flexShrink={0} gap={2}>
-          <Text dimColor tabular>{`${running.length} running`}</Text>
-          <Button key="mode" hotkey="m" plain dimColor onPress={() => setMode($, other)}>
-            {other}
-          </Button>
-        </Box>
-      </Box>
-    )
-    const section = (name: string, note: string | undefined, content: RenderChildren) => (
-      <Box flexDirection="column">
+      )
+      const piece = (text: string, s: 'done' | 'run' | 'next') =>
+        s === 'next' ? <Text dimColor mono>{text}</Text> : <Text color={color[s]} mono>{text}</Text>
+
+      const head = (
         <Box gap={2}>
-          {keep(<Text weight="semibold" size="caption">{name}</Text>)}
-          {note ? keep(<Text dimColor size="caption">{note}</Text>) : undefined}
+          {grow(<Text weight="bold" wrap="truncate-end">{plan.cycle}</Text>)}
+          {keep(<Text dimColor tabular>{`${done ? 6 : at + 1}/6`}</Text>)}
         </Box>
-        {content}
-      </Box>
-    )
-    // The rail has one `▍` per body line, so every body line stays one row high.
-    const card = (color: 'claude' | 'subtle', ...lines: RenderChildren[]) => {
-      const body = lines.filter(Boolean)
-      return (
-        <Box gap={1}>
+      )
+
+      // Six stations on one line; the rule between them is sized from the pane's width, 1 column of which is padding.
+      const seg = Math.max(0, Math.min(8, Math.floor((width - 9) / 5)))
+      const cols = SHORT.map((_, i) => SOLID + i * (seg + 1))
+      const lens = SHORT.map(s => s.length)
+      const labelAt = (() => {
+        const s = cols.map((c, i) => c - Math.floor(lens[i]! / 2))
+        s[0] = Math.max(0, s[0]!)
+        for (let i = 1; i < 6; i++) s[i] = Math.max(s[i]!, s[i - 1]! + lens[i - 1]! + 1)
+        s[5] = Math.min(s[5]!, width - 1 - lens[5]!)
+        for (let i = 4; i >= 0; i--) s[i] = Math.min(s[i]!, s[i + 1]! - 1 - lens[i]!)
+        return s[0]! >= 0 ? s : undefined
+      })()
+      const line = [piece('━'.repeat(SOLID), state(0))]
+      for (let i = 0; i < 6; i++) {
+        if (i > 0) line.push(state(i) === 'next' ? piece('╌'.repeat(seg), 'next') : piece('━'.repeat(seg), 'done'))
+        line.push(piece(state(i) === 'done' ? '●' : state(i) === 'run' ? '◉' : '○', state(i)))
+      }
+      let labels: RenderChildren
+      if (labelAt) {
+        let end = 0
+        labels = (
+          <Box>
+            {SHORT.map((name, i) => {
+              const pad = labelAt[i]! - end
+              end = labelAt[i]! + lens[i]!
+              const text = state(i) === 'run' ? <Text weight="bold">{name}</Text> : <Text dimColor>{name}</Text>
+              return <Box paddingLeft={pad}>{text}</Box>
+            })}
+          </Box>
+        )
+      } else {
+        // Too narrow for the six labels: the running phase's name alone, under its station.
+        const name = done ? 'done' : words(plan.phase)
+        const start = Math.max(0, Math.min(cols[Math.min(at, 5)]! - Math.floor(name.length / 2), width - 1 - name.length))
+        labels = (
+          <Box paddingLeft={start}>
+            <Text weight="bold">{name}</Text>
+          </Box>
+        )
+      }
+      const stations = (
+        <Box flexDirection="column" paddingLeft={1}>
+          <Box>{line}</Box>
+          {labels}
+        </Box>
+      )
+
+      // The rail has one `▍` per body line, so every body line stays one row high.
+      const card = (...lines: RenderChildren[]) => (
+        <Box gap={1} paddingLeft={1}>
           <Box flexDirection="column" flexShrink={0}>
-            {body.map(() => (
-              <Text mono color={color}>▍</Text>
+            {lines.map(() => (
+              <Text mono color="claude">▍</Text>
             ))}
           </Box>
           <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-            {body}
+            {lines}
           </Box>
         </Box>
       )
-    }
-    const runningCard = (r: Row, i: number) =>
-      card(
-        r.agentId ? 'claude' : 'subtle',
-        <Box gap={2}>
-          {keep(<Text weight="bold">{r.role}</Text>)}
-          {grow(<Text dimColor wrap="truncate-end">{label(r)}</Text>)}
-          {keep(<Text dimColor tabular>{clock(now - r.startedAt)}</Text>)}
+      const agent = [...agents].reverse().find(a => ROLES[plan.phase]?.includes(a.role))
+      const live = agent && !done && !plan.waiting
+      const title = (done ? 'Done' : words(plan.phase)).replace(/^./, c => c.toUpperCase())
+      const counts = `${plan.ticked}/${plan.items}`
+      // The bar takes what the rail, the word `checks`, the count and the gaps leave, up to BAR cells.
+      const cells = Math.max(4, Math.min(BAR, width - 11 - counts.length))
+      const filledBar = plan.items > 0 ? Math.round((plan.ticked / plan.items) * cells) : 0
+      const checks = (
+        <Box gap={1}>
+          {keep(<Text dimColor>checks</Text>)}
+          <Box flexShrink={0}>
+            {filledBar > 0 ? <Text mono color="claude">{'█'.repeat(filledBar)}</Text> : undefined}
+            {filledBar < cells ? <Text mono dimColor>{'░'.repeat(cells - filledBar)}</Text> : undefined}
+          </Box>
+          {keep(<Text dimColor tabular>{counts}</Text>)}
+        </Box>
+      )
+      const body: RenderChildren[] = [
+        <Box justifyContent="space-between" gap={2}>
+          {keep(<Text weight="bold">{title}</Text>)}
+          {live ? keep(<Text dimColor tabular>{clock(now - agent.startedAt)}</Text>) : undefined}
         </Box>,
-        r.agentId ? (
-          <Box gap={2}>
-            {keep(<Text color="claude" mono>{spin(i)}</Text>)}
-            {keep(<Text>{r.tool ?? 'starting'}</Text>)}
-            {r.tool && r.target ? grow(<Text dimColor wrap="truncate-end">{r.target}</Text>) : undefined}
+      ]
+      if (done) body.push(<Text dimColor>the cycle is done</Text>)
+      else if (plan.waiting) body.push(<Text color="warning">waiting for you</Text>)
+      else if (live) {
+        body.push(<Text dimColor wrap="truncate-end">{[agent.role, family(agent.model), agent.effort].filter(Boolean).join(' · ')}</Text>)
+        body.push(
+          <Box gap={1}>
+            {keep(<Text color="claude" mono>{SPIN[Math.floor(now / 250) % SPIN.length]}</Text>)}
+            {keep(<Text>{agent.tool ?? 'starting'}</Text>)}
+            {agent.tool && agent.target ? grow(<Text dimColor wrap="truncate-end">{agent.target}</Text>) : undefined}
+          </Box>,
+        )
+      }
+      body.push(checks)
+
+      // Finished phases, newest first, with the evidence the lead logged for them; any other log line as it is.
+      const isPhase = (key: string) => PHASES.some(p => p === key)
+      const label = Math.max(0, ...plan.log.filter(l => isPhase(l.key)).map(l => words(l.key).length))
+      const finished = [...plan.log].reverse().map(l =>
+        isPhase(l.key) ? (
+          <Box paddingLeft={1} gap={1}>
+            {keep(<Text color="success">✓</Text>)}
+            <Box width={label + 1} flexShrink={0}>
+              <Text dimColor>{words(l.key)}</Text>
+            </Box>
+            {grow(<Text dimColor wrap="truncate-end">{l.text}</Text>)}
           </Box>
         ) : (
-          <Text dimColor>waiting</Text>
-        ),
-        r.agentId ? (
-          <Box gap={2}>
-            {keep(<Text mono color="claude">{bar(now - r.startedAt, longest)}</Text>)}
-            {grow(<Text dimColor wrap="truncate-end">{stats(r)}</Text>)}
+          <Box paddingLeft={1}>
+            <Text dimColor wrap="truncate-end">{`${l.key}: ${l.text}`}</Text>
           </Box>
-        ) : undefined,
+        ),
       )
-    const leadCard = card(
-      'claude',
-      <Box gap={2}>
-        {keep(<Text weight="bold">{lead.model ? family(lead.model) : 'lead'}</Text>)}
-        <Box flexShrink={1} flexGrow={1} minWidth={0} />
-        {pct !== undefined ? keep(<Text dimColor tabular>{`ctx ${pct}%`}</Text>) : undefined}
-      </Box>,
-      lead.tool ? (
-        <Box gap={2}>
-          {keep(<Text>{lead.tool}</Text>)}
-          {lead.target ? grow(<Text dimColor wrap="truncate-end">{lead.target}</Text>) : undefined}
-        </Box>
-      ) : undefined,
-      lead.edits ? (
-        <Text dimColor wrap="truncate-end">{`edits ${lead.edits.files} file${lead.edits.files === 1 ? '' : 's'} · ${lead.edits.lines}/${BUDGET.lines} lines`}</Text>
-      ) : undefined,
-    )
-    const finishedLine = (r: Row) => {
-      const ok = r.outcome === 'done'
-      return (
-        <Box paddingLeft={2} gap={2}>
-          {keep(<Text color={ok ? 'success' : 'error'}>{ok ? '✓' : '✗'}</Text>)}
-          {keep(<Text dimColor>{r.role}</Text>)}
-          {grow(<Text dimColor wrap="truncate-end">{ok ? label(r) : `${label(r)} · ${r.outcome}`}</Text>)}
-          {keep(<Text dimColor tabular>{figures(r)}</Text>)}
-        </Box>
-      )
-    }
-    const cards = (members: Row[]) => {
-      const live = members.filter(isRunning)
-      return live.length > 0 ? (
-        <Box flexDirection="column" gap={1}>
-          {live.map(runningCard)}
-        </Box>
-      ) : undefined
-    }
-    const finished = (members: Row[]) => {
-      const done = members.filter(r => !isRunning(r)).reverse()
-      return done.length > 0 ? <Box flexDirection="column">{done.map(finishedLine)}</Box> : undefined
-    }
-    const footer = (
-      <Box flexWrap="wrap" columnGap={2}>
-        {sessionParts.map(part => (
-          <Text dimColor size="caption">{part}</Text>
-        ))}
-      </Box>
-    )
+      const next = done ? [] : PHASES.slice(at + 1).map(words)
 
-    if (mode === 'compact') {
       return (
         <Box flexDirection="column" gap={1}>
           {head}
-          {cards(list)}
-          {finished(list)}
-          {footer}
+          {stations}
+          {card(...body)}
+          {finished.length > 0 ? <Box flexDirection="column">{finished}</Box> : undefined}
+          {next.length > 0 ? (
+            <Box paddingLeft={1}>
+              <Text dimColor>{`next: ${next.join(' · ')}`}</Text>
+            </Box>
+          ) : undefined}
         </Box>
       )
+    } catch {
+      return none
     }
-
-    const lanes = [...LANES, { name: 'OTHER', note: '' }].map(lane => {
-      const members = list.filter(r => laneOf(r) === lane.name)
-      if (members.length === 0 && lane.name === 'OTHER') return undefined
-      return section(
-        lane.name,
-        lane.note,
-        members.length > 0 ? (
-          <Box flexDirection="column" gap={1}>
-            {cards(members)}
-            {finished(members)}
-          </Box>
-        ) : (
-          <Box paddingLeft={2}>
-            <Text dimColor>none this session</Text>
-          </Box>
-        ),
-      )
-    })
-
-    return (
-      <Box flexDirection="column" gap={1}>
-        {head}
-        {section('LEAD', undefined, leadCard)}
-        {lanes}
-        {section(
-          'EVENTS',
-          undefined,
-          events.map(line => (
-            <Box paddingLeft={2}>
-              <Text dimColor size="caption" wrap="truncate-end">{line}</Text>
-            </Box>
-          )),
-        )}
-        {footer}
-      </Box>
-    )
   })
 }

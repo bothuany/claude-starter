@@ -6,6 +6,7 @@
 //                                                wasn't called since, ask Claude once to run it before stopping
 //   node review-gate.mjs on|off --data <dir>     turn the gate on or off (setup passes the plugin data dir)
 //
+// The block reason lets Claude answer in one line when the change is not risky (no network, permissions or stored data).
 // Off also with CLAUDE_STARTER_REVIEW_GATE=off in the environment (settings.json "env").
 //
 // Threshold, as in the rules: 2 or more non-test files with at least 15 changed lines in total, or more than 50
@@ -144,7 +145,7 @@ export function scanTranscript(transcriptPath, from) {
 // Whether HEAD moved since `head` through something other than this session's own commits: a pull, merge,
 // checkout, reset or rebase in HEAD's reflog. An entry that left HEAD on the same commit (`checkout -b`, `switch -c`)
 // brought nothing in, so Claude branching before it commits its own work doesn't hide that work from the gate.
-// Claude's own merge, pull or rebase still count as foreign; the fan-out-run workflow reviews its merges itself.
+// Claude's own merge, pull or rebase still count as foreign.
 export function foreignMove(cwd, head) {
   if (!head) {
     return false
@@ -266,9 +267,9 @@ function stop(input) {
       'finding: reproduce it with a command or a throwaway test, then send the fix to the writer; dismiss it only with evidence (the ' +
       'line you read, or a command you ran and its output); report it as unverified only if checking would take ' +
       'more than a few minutes or needs the user\'s decision. "The task\'s examples pass" and "it was like that ' +
-      'before" are not evidence. If the change is only docs, a rename or formatting, if these changes were not made in ' +
-      'this session (a pull, a merge, the user\'s own edits), or if the fan-out-run workflow already reviewed them or ' +
-      'will, say so in one line and stop.',
+      'before" are not evidence. If the change is only docs, a rename or formatting, if it is not risky (no network, ' +
+      'permissions or stored data), or if these changes were not made in this session (a pull, a merge, the user\'s ' +
+      'own edits), say so in one line and stop.',
   }))
 }
 

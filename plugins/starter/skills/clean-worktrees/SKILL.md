@@ -1,6 +1,6 @@
 ---
 name: clean-worktrees
-description: List this repository's git worktrees and local branches, then remove the clean, merged ones safely (links inside a worktree are unlinked first, so nothing outside it is deleted). Use when worktrees or merged branches have piled up, or after a fan-out.
+description: List this repository's git worktrees and local branches, then remove the clean, merged ones safely (links inside a worktree are unlinked first, so nothing outside it is deleted). Use when worktrees or merged branches have piled up, or after a build on a work branch.
 disable-model-invocation: true
 argument-hint: "[all-merged] [--into <branch>]"
 ---

@@ -1,15 +1,22 @@
 # claude-starter: the details
 
-The [README](../README.md) is the short version. This page keeps the numbers, the evidence and the fine print.
+The [README](../README.md) is the short version. This page keeps the numbers, the evidence and the fine print. Not every piece was measured before it shipped: what was, and what was not, is stated below.
 
 ## The numbers
 
-Measured with the Harbor benchmark harness on Claude Code 2.1.312, headless (`claude -p`), with hidden tests. Samples are small; costs are Claude Code's API-equivalent `cost_usd`, not what a subscription bills.
+Measured with the Harbor benchmark harness on Claude Code 2.1.312, headless (`claude -p`), with hidden tests. Samples are small; costs are Claude Code's API-equivalent `cost_usd`, not what a subscription bills. All of these runs are from before 0.10. The rules had their earlier wording then; 0.10 rewrote them and has not rerun these measurements.
 
 | What we measured | Without | With the starter |
 |---|---|---|
 | Sonnet 5.5 runs `code-review` in SWE-bench Pro sessions | 4/8, then 0/4 (rule only) | **3/3, then 3/3** of sessions over the threshold (rule + review gate) |
 | Opus 5.5 follows the scoped review rule (review when over the threshold, skip when under) | — | **12/12** decisions correct |
+
+### Fan-out: measurements of a feature removed in 0.10
+
+Fan-out handed an approved plan to a workflow outside the main session. 0.10 removed it, with its skill and its workflow; its numbers stay here as history.
+
+| What we measured | Without | With fan-out |
+|---|---|---|
 | Bugs the post-fan-out review confirmed and fixed, each reproduced and given a regression test | — | **16** across 3 runs (5, 5, 6) |
 | Plan conflict found independently by all 3 runs and handed to the user | — | **3/3** |
 | Fan-out with Sonnet workers on a 4-part plan of small parts (about 100–150 lines each) | one Opus session: $1.19, 271 s | **$1.89** (Opus main $1.23–1.33 + Sonnet workers $0.61–0.64), 311 s |
@@ -27,11 +34,15 @@ Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the O
 
 | Piece | Kind | What it does |
 |---|---|---|
-| **Working rules** | `SessionStart` hook, about 600 tokens per session | Short rules: ask before assuming, check the docs, route web research, delegate wide searches, suggest fan-out only with your OK, verify before saying done ([read them](plugins/starter/rules.md)) |
-| **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping |
-| **`fan-out`** | Skill (Claude suggests it, you agree) plus the `fan-out-run` workflow | Hands an approved multi-part plan to a workflow that runs outside the main session on its own branch: one Sonnet builder (or, for very large plans and with your OK, parallel Sonnet workers in worktrees and an integrator), then one fresh Sonnet reviewer |
+| **Working rules** | `SessionStart` hook, 450 words per session | Short rules: ask before assuming, check the docs, route web research, delegate wide reading, verify before saying done ([read them](plugins/starter/rules.md)) |
+| **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping; a change that is not risky gets a one-line answer |
+| **`cycle`** | Skill (you run it) | Runs one piece of work through gather, plan, plan review, build, code review and probe, handing off through a plan file; off unless you start it |
+| **Role agents** | `reader` (Sonnet, medium), `writer` (Sonnet, high), `reviewer` (Opus, medium) | Each role fixes its model and effort; they are started by name and start clean |
+| **`/phase`** | Mod command and pane | Shows the open cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
+| **`visual-plan`** | Skill | Writes a plan in the plan-file format first; an optional visual page of it |
+| **`grill`**, **`review-setup`** | Skills (you run them) | Interview you about a loose idea; draft a short `REVIEW.md` for your repo |
 | **`clean-worktrees`** | Skill (you run it) | Removes clean, merged worktrees and branches, and never deletes through links into your main checkout |
-| **`setup`** | Skill (you run it) | Sets what a plugin can't ship (worktree base, optional add-ons) and turns the rules or the gate off, showing every change first |
+| **`setup`** | Skill (you run it) | Sets what a plugin can't ship (optional add-ons) and turns the rules or the gate off, showing every change first |
 | **`monthly-review`** | Skill plus a reminder when a review is due (at most once a day) | Runs `/insights`, checks its suggestions against your setup, applies at most two, prunes auto memory |
 
 ## Quick start
@@ -46,7 +57,6 @@ claude plugin install starter@claude-starter
 The rules and the review gate work from the next session; nothing is written to your CLAUDE.md. Optionally, run `/starter:setup` in a session. It shows each change and asks before making it:
 
 - **Old rules block:** versions before 0.8 copied the rules into `~/.claude/CLAUDE.md`. Setup removes that copy (with a timestamped backup); until then the plugin holds its own copy back, so the rules never load twice.
-- **`worktree.baseRef: "head"`:** set for the project you fan out in, so parallel workers see the contract commit.
 - **Optional add-ons** (all off unless you say yes): context7, obscura, i-have-adhd and ponytail. See [below](#optional-add-ons).
 - **The rules and the review gate:** both on by default; turn either off here if you prefer.
 
@@ -57,12 +67,11 @@ New MCP servers show up after a restart.
 | Command | What it does |
 |---|---|
 | `/starter:setup` | Show and apply the setup above. `/starter:setup check` only reports the current state |
-| `/starter:fan-out <plan file or parts>` | Hand an approved plan to the workflow yourself. For a very large plan it asks, with a cost estimate, whether to use parallel workers |
+| `/starter:cycle <work>` | Start a cycle for one piece of work and write its plan file. With no argument it resumes the open cycle; `off` stops it |
+| `/phase` | Open or close the cycle pane: the phase, the running agent and the plan's finished items. It also opens by itself when a cycle's plan file is first written, and in a later session if it was open, and stays closed for that plan once you close it |
 | `/starter:clean-worktrees` | List worktrees and branches, propose what's safe to remove, ask, then remove it. Add `all-merged` to skip the question, or `--into <branch>` to measure "merged" against another branch |
 | `/starter:monthly-review` | Run the monthly review. `off` stops the reminder; `on` brings it back |
-| `/solo on`, `/solo off`, `/solo` | Solo mode, remembered across sessions: the next sessions get the rules without the delegation section, the lead edit budget is off, and the session notice says so; `/solo off` restores orchestration, and `/solo` shows the state. The switch reaches the rules hook through `claude-starter/solo` in the config dir (`CLAUDE_CONFIG_DIR`, else `~/.claude`) |
 | `CLAUDE_STARTER_REVIEW_GATE=off` | Turn the review gate off from settings (`off`, `0`, `false` or `no`) |
-| `CLAUDE_STARTER_LEAD_BUDGET=off` | Turn the lead edit budget off from settings (`off`, `0`, `false` or `no`), read at session start |
 
 To turn the gate off for every session, add this to `~/.claude/settings.json`:
 
@@ -77,8 +86,41 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 - **Ask before assuming.** If a request is ambiguous in a way that changes the result, ask, at most 4 questions with a recommended option first. Don't ask what you can look up.
 - **Check the docs, not memory.** Look up a third-party API before writing against it (context7, or the official docs), and say which version you checked.
 - **Web research.** Use obscura first when it's connected; fall back to WebSearch and WebFetch, and say so.
-- **Delegate.** Short, dependent edits stay in the main session, budgeted per request (3 files or 60 changed lines, enforced by the plugin; `.md`/`.txt` files and files outside the project don't count, and the count starts over with each new request); reading across about 10 or more files and independent pieces of work go to subagents that return conclusions, not file dumps. Independent pieces each get their own writer, in parallel, never on the same file, and a finished piece is reviewed while the others are still being written. In work judged by eye the subagent applies and the main session compares. Suggest fan-out for big approved plans, and start it only when you agree. Read a worker's diff; don't trust its summary.
-- **Verify before you say done.** Run the project's tests, type check and lint, and report failures word for word. Send risky changes (network, permissions, stored data) to an independent `code-review` and handle every finding with evidence; a change that only alters how something looks needs the tests and a side-by-side check. Say plainly what wasn't verified.
+- **Delegate wide reading.** Reading across about 10 or more files goes to `reader`, which returns conclusions, not file dumps. Work that must start clean goes to a named role, never to a fork.
+- **Verify before you say done.** Run the project's tests, type check and lint, and report failures word for word. Get a failing test or command before you fix a bug. Send risky changes (network, permissions, stored data) to the `reviewer`; a change that is not risky needs the project's checks and one line saying so. Every finding needs evidence, a finding that is one of a class is fixed in every instance, and after three review rounds on one change the lead asks you whether the approach is right. Say plainly what wasn't verified.
+
+### The cycle
+
+`/starter:cycle <work>` starts a cycle for one piece of work; with no argument it resumes the plan whose phase is not `done`, and `off` stops it. It creates the work branch `cycle/<slug>` and commits there after each phase that changed files; it pushes or merges only when asked.
+
+| Phase | Who | What happens |
+|---|---|---|
+| gather | lead | Settle what the work is for and its decisions with you, a few questions at a time; wide reading goes to `reader` |
+| plan | lead | Write the plan file: why, decisions, items, each with a check |
+| plan-review | `reviewer` | One pass: every item has a check that can run and tests the item, the plan agrees with the code it names, nothing the goal needs is missing. The lead settles the findings, then waits for your approval |
+| build | `writer` | Builds the items in order from the plan file, ticking each after its check passes |
+| code-review | `reviewer` | Reviews the diff against the plan and `REVIEW.md`; findings go back to the writer that built the change |
+| probe | lead | Runs every check and shows the output; for a high-risk change the reviewer also tries to break it |
+
+The plan file is `docs/plans/<slug>.md`, at most about 150 lines. The skill, the writer and the `/phase` pane read it by one contract:
+
+- **Front matter:** `cycle` (the slug; a file without it is not a cycle plan), `phase`, `branch`, and `waiting: user`. Only the lead edits it.
+- **`phase`** is one of `gather`, `plan`, `plan-review`, `build`, `code-review`, `probe`, `done`. `waiting: user` sits on the current phase while it cannot finish without your answer.
+- **`## Items`:** one line `- [ ] N. <text>` per item. The check is the first indented line starting with `check:`; its command (one pair of backticks removed) runs in bash from the repository root and passes when it exits 0.
+- **`## Log`:** the lead adds one line `- <phase>: <evidence>` each time it moves the phase on.
+
+`/phase` opens a side pane that shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan.
+
+### Where 0.10 came from
+
+0.9 kept one long lead session alive and routed work around it: a role policy, a lead edit budget, `/solo`. 0.10's direction, a cycle that hands off through a plan file so the build and the reviews start small, came from reading the author's own Claude Code session logs, not from a benchmark. The method is in `tools/measure/`; both scripts read the transcripts under the Claude config dir (`projects/*/*.jsonl` and their `subagents/` folders) and print aggregates only, no content:
+
+```bash
+node tools/measure/ctx.mjs --since 2026-11-01 [--cut 2026-11-12]
+node tools/measure/sub.mjs --since 2026-11-01 [--cut 2026-11-12]
+```
+
+`ctx.mjs` reports the peak main context per session and what fills it, by tool, weighted by how often each part is re-read. `sub.mjs` reports what subagent steps re-read in their own contexts against what the same steps would have re-read in the main context at the moment of the spawn. `--since` is required; `--cut` adds a before/after split at a date of your choice. The numbers from the author's logs are not published here: they are one person's sessions, and they show where the context goes, not that the cycle is better. Run the scripts on your own logs to see yours.
 
 ### Review that runs when it matters, and findings that need evidence
 
@@ -114,9 +156,9 @@ Finding a bug isn't enough; acting on it matters. On one SWE-bench Pro task (vul
 
 "The examples pass" and "it was like that before" don't count as evidence.
 
-### Fan-out, as a workflow
+### Fan-out, as a workflow (removed in 0.10)
 
-For an approved plan with 3 or more parts, Claude may suggest `/starter:fan-out`; it starts only when you agree, or when you type it. It hands the plan to the plugin's `fan-out-run` [workflow](https://code.claude.com/docs/en/workflows). The main session checks that the tree is clean, creates a `fan-out/<slug>` work branch, starts the workflow, and reads the result. Everything else runs in workflow agents whose models are fixed by design:
+Fan-out and its workflow were removed in 0.10. This section and the measurements above describe what it did while it existed. For an approved plan with 3 or more parts, Claude could suggest `/starter:fan-out`; it started only when you agreed, or when you typed it. It handed the plan to the plugin's `fan-out-run` [workflow](https://code.claude.com/docs/en/workflows). The main session checked that the tree was clean, created a `fan-out/<slug>` work branch, started the workflow, and read the result. Everything else ran in workflow agents whose models were fixed by design:
 
 | Step | Who | Model |
 |---|---|---|
@@ -185,7 +227,7 @@ All misses came from one task, where both arms fixed the asked bug but missed a 
 </details>
 
 <details>
-<summary><b>Fan-out vs one session</b>: a 4-part plan of small parts, 44 hidden tests, × 3</summary>
+<summary><b>Fan-out vs one session</b> (removed in 0.10): a 4-part plan of small parts, 44 hidden tests, × 3</summary>
 
 **With Sonnet workers (0.5.1, the intended design):**
 
@@ -221,7 +263,7 @@ It dismissed 1–2 per run with evidence, and handed the same spec conflict to t
 </details>
 
 <details>
-<summary><b>Fan-out as a workflow (0.6, 0.7)</b>: a large plan, 4 parts of 230–300 non-test lines, 77 hidden tests, k = 3</summary>
+<summary><b>Fan-out as a workflow (0.6, 0.7)</b> (removed in 0.10): a large plan, 4 parts of 230–300 non-test lines, 77 hidden tests, k = 3</summary>
 
 | Arm | Success | Cost per trial (mean) | Opus main session | Agent time |
 |---|---|---|---|---|
@@ -256,39 +298,53 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 
 - **Ask-first behaviour interactively.** Headless runs can't ask. In one manual check, with the rules Claude asked 2 questions before coding; without them it coded at once.
 - **Interactive `opusplan`** (Opus plans, Sonnet executes). Headless runs only measured plain Sonnet.
-- **Sonnet review vs Opus review, finding by finding.** 0.7 reviews with Sonnet because it costs less; whether Opus finds more on the same change wasn't compared.
-- **A plan where the parts are too big for one session's context**, the case fan-out is meant for. Both benchmark plans fit in one Sonnet session.
 - **The 0.5.0 evidence rule's effect** on acting on findings.
-- **The review's catch rate** on seeded defects, and `low` vs `medium`.
-- **The lead edit budget.** Its thresholds (3 files / 60 lines) are a judgement call, and its effect on how much the lead delegates isn't measured.
+- **The review's catch rate** on seeded defects.
+
+The fan-out items that stood here (Sonnet review against Opus review, a plan too big for one context) and the lead edit budget (3 files / 60 lines, a judgement call whose effect on delegation was never measured) went with those pieces in 0.10.
+
+### Not measured in 0.10
+
+0.10 was shipped on a reading of the author's own session logs (see [where 0.10 came from](#where-010-came-from)), not on a benchmark. These pieces have no measurement yet:
+
+- **The cycle's effect on cost and quality.** No run compared a cycle with the same work done in one session.
+- **Plan review by a model.** Whether a `reviewer` pass over the plan file finds the problems that would have cost a build is not measured.
+- **The try-to-break probe.** The reviewer's attempt to break a high-risk change has not been compared with a review without it.
+- **The reviewer at medium effort.** 0.9 ran it at high; the drop to medium is for cost, and what it misses is not measured.
+- **The reader on Sonnet.** 0.9 ran it on Opus; whether Sonnet's reports are as reliable is not measured.
+
+The rules were rewritten in 0.10 too; the review-gate and rule-following numbers above are from the earlier wording.
 
 ## Context cost
 
-| | Tokens in every session |
+| | In every session |
 |---|---|
-| Rules, injected at session start | about 600 |
-| What Claude sees of the plugin (the `fan-out` description) | about 150 |
+| Rules, injected at session start | 450 words (`wc -w` of `rules.md`); roughly 600 tokens, an estimate, not counted with a tokenizer |
+| The role agents' descriptions and `visual-plan`'s description | not measured |
 | Other hooks (session check, review gate) | 0, until the gate blocks |
-| `setup`, `clean-worktrees`, `monthly-review` | 0 (user-only skills) |
+| `setup`, `cycle`, `clean-worktrees`, `monthly-review` | 0 (user-only skills) |
 
-`claude plugin details starter` doesn't count the hook-injected rules, and it does count the three user-only skills, whose descriptions don't load. Add-ons bring their own: context7's tool schemas load on demand, and i-have-adhd and ponytail add their instructions to every session.
+`claude plugin details starter` doesn't count the hook-injected rules, and it does count the user-only skills, whose descriptions don't load. Add-ons bring their own: context7's tool schemas load on demand, and i-have-adhd and ponytail add their instructions to every session. Any token figure on this page that is not a transcript's own usage count is an estimate.
 
 ## Design choices
 
-- **Few pieces, each one earning its place.** There are four role agents (`locator`, `reader`, `writer`, `reviewer`), because a role pins model and effort and the type of a task is readable from its brief. There are still no generic "senior engineer" personas: they add context at every session and little behaviour.
+- **Few pieces, each one earning its place.** There are three role agents (`reader`, `writer`, `reviewer`), because a role pins model and effort and the type of a task is readable from its brief. There are still no generic "senior engineer" personas: they add context at every session and little behaviour.
 - **Rules from the plugin, hooks only where rules fail.** The rules arrive with the plugin and leave with it, and their cost is fixed. The review gate exists because one model skipped the rule; nothing else is forced.
 - **Questions come from the main session.** Subagents can't ask you, so open questions are settled before delegating.
-- **Parallel only when it pays.** Coding parallelizes less than research. On a small plan, fan-out with Sonnet workers cost 1.6× one Opus session, so the workflow's builder does most plans itself in one Sonnet session, and parallel workers need your OK. The 1500-line mark is a guess.
-- **Coordination in a workflow, not in the main session.** The cost of the old fan-out was the Opus main session merging and re-testing. A script now holds that loop with as few agents as the job allows, each with a fixed model: Sonnet builds and reviews, and the main session only reads the result.
+- **Off by default.** The cycle starts only when you type `/starter:cycle <work>`. Questions and small fixes are answered directly; a cycle is for a piece of work big enough to need a plan.
+- **Small contexts, a durable plan.** The cycle hands off through a plan file instead of keeping one long lead session alive: the build and the reviews start in a clean context and read the file. The lead re-reads the file at every phase, so a compaction or a new session loses nothing.
+- **Named roles, never forks.** A fork inherits the lead's whole context, which is the cost the cycle avoids. `writer`, `reviewer` and `reader` are started by name and start clean.
+- **A check for every item.** An item is done when its command exits 0, not when someone says so. The writer ticks it after the check passes, and the probe runs every check again.
 
 ## Limits to know
 
 - **Rules are probabilistic.** That's why the review has a hook. For any other rule you need guaranteed, use a hook in that project.
-- **Claude's own merges count as outside changes.** A merge, pull, reset or rebase moves the gate's base even when Claude ran it. Fan-out reviews its own merges anyway.
+- **Claude's own merges count as outside changes.** A merge, pull, reset or rebase moves the gate's base even when Claude ran it.
 - **Gate cost on big repos.** Each check runs `git add -A` into a private index and object store, skipping untracked files over 2MB, so many untracked files or Git LFS clean filters still slow it down. Turn it off with `/starter:setup` or the env setting above.
-- **Worker dependencies.** A worktree is a fresh checkout. Before starting the workflow, Claude decides how workers get dependencies: `.worktreeinclude`, `worktree.symlinkDirectories`, a cheap install, or checks that need none.
-- **Workflows and `claude -p`.** Headless runs stop background work after 10 minutes of idle waiting by default. Set `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS` for long plans.
-- **`worktree.baseRef: "head"`** also makes `claude --worktree` sessions start from your current HEAD. That's why setup sets it per project.
+- **A plan is only as good as its checks.** The plan review looks at whether each check can run and tests its item; it cannot know that a passing check means the work is right.
+- **A user-only skill's text and a compaction.** Whether `/starter:cycle`'s text survives a context compaction is unverified. Resuming with `/starter:cycle` and re-reading the plan file at every phase are the guard.
+- **The gate does not see a review that continues.** It counts a review when the `reviewer` is started or `code-review` is called. A second review round sent to the same reviewer (continuing that agent, as the cycle does) is not seen, so the gate may ask once more; Claude answers in one line that the review is running.
+- **Removed skills.** `/starter:fan-out` and `/starter:diff-walkthrough` are gone in 0.10 for anyone who used them.
 
 ## Keep it sharp: the monthly review
 
@@ -312,11 +368,8 @@ Yes. Turn the rules or the gate off in setup, or never type the commands. Each p
 **Does it work with Sonnet?**
 Yes. That's why the gate exists: Opus followed the review rule on its own, while Sonnet needed the nudge.
 
-**Why does fan-out so rarely run in parallel?**
-Because on a small plan, parallel workers cost 1.6× one Opus session for the same result. The workflow's builder does most plans itself in one Sonnet session; parallel workers run only for plans too big for one context, and only after you approve the estimated cost.
-
-**Isn't Opus planning plus Sonnet workers cheaper than all-Opus?**
-Not when the Opus main session does the coordinating: $1.89 vs $1.19 on the small plan. That's why 0.6 moved coordination into a workflow: on the large plan the Opus main session's share fell to $0.11–0.24. In total, the 0.7 workflow still ran a little above plain Opus ($2.80 vs $2.41 on average), because every agent's start-up and the review add up. If cost is what you're after, a plain Sonnet session solved both plans 3/3: $0.46 for the small one, $1.11 for the large one.
+**What happened to fan-out?**
+Removed in 0.10, with its skill and its workflow. On the small plan, fan-out with Sonnet workers cost $1.89 against $1.19 for one Opus session, and on the large plan the whole workflow run averaged $2.80 against $1.11 for a plain Sonnet session; the numbers are kept [above](#fan-out-measurements-of-a-feature-removed-in-010). The cycle replaces it as the way to run a larger piece of work. Its effect on cost and quality is [not measured](#not-measured-in-010).
 
 ## Privacy
 
@@ -334,7 +387,7 @@ claude plugin uninstall starter@claude-starter
 Then undo what setup wrote, if you want it gone. If you use `CLAUDE_CONFIG_DIR`, read that folder for `~/.claude` below.
 
 - If you used a version before 0.8 and never ran setup since, delete the block between `claude-starter:begin` and `claude-starter:end` in `~/.claude/CLAUDE.md`.
-- Remove `worktree.baseRef` from the project's `.claude/settings.local.json` or from `~/.claude/settings.json`.
+- If an older version of setup set `worktree.baseRef` (before 0.10), remove it from the project's `.claude/settings.local.json` or from `~/.claude/settings.json`.
 - If setup added them, run `claude mcp remove --scope user obscura` and `claude mcp remove --scope user context7`.
 - If you added them, run `claude plugin uninstall i-have-adhd@claude-starter` and `claude plugin uninstall ponytail@claude-starter`.
 - Delete the `*.starter-backup` files.
@@ -342,10 +395,11 @@ Then undo what setup wrote, if you want it gone. If you use `CLAUDE_CONFIG_DIR`,
 ## Tests
 
 ```bash
-node --test test/scripts.test.mjs test/workflow.test.mjs
+node --test test/scripts.test.mjs
+claude plugin test plugins/starter
 ```
 
-The first runs every script against throwaway repositories and config directories; it never touches your own `~/.claude`. The second runs the fan-out workflow's control flow with stub agents.
+The first runs every script against throwaway repositories and config directories; it never touches your own `~/.claude`. The second runs the plugin's hooks module (the `/phase` pane) in the mod test harness.
 
 ## Pairs well with
 
