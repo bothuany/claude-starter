@@ -11,6 +11,54 @@ claude plugin install starter@claude-starter
 
 Works from your next session. Nothing is written to your `CLAUDE.md`. Needs Node.js 18+.
 
+## How to use
+
+**Most days: do nothing.** Ask, fix and explore as you always do. The rules and the review gate work in the background.
+
+**For real work, start a cycle:**
+
+```
+/starter:cycle add rate limiting to the public API
+```
+
+1. **It asks.** A few questions at a time, until the decisions are yours and not guesses.
+2. **It writes the plan** to `docs/plans/rate-limiter.md`. Every item carries a command that proves it is done.
+3. **A reviewer reads the plan, then you do.** Nothing is built until you approve.
+4. **A writer builds it** in a clean context, on the branch `cycle/rate-limiter`, ticking each item when its check passes.
+5. **A reviewer reads the code.** The writer fixes what it finds.
+6. **The probe runs every check** and shows you the output.
+
+**Watch it from the side** with `/phase`:
+
+```
+rate-limiter                             4/6
+
+ ━━●━━━━━━━●━━━━━━━●━━━━━━━◉╌╌╌╌╌╌╌○╌╌╌╌╌╌╌○
+ gather  plan   review   build  review probe
+
+ ▍ Build                                4:12
+ ▍ writer · Sonnet 5.5 · high
+ ▍ ⠹ Edit limiter.ts
+ ▍ checks ███████░░░░░░░░░ 3/7
+
+ ✓ plan review  2 found, 2 settled
+ ✓ plan         docs/plans/rate-limiter.md
+ ✓ gather       3 decisions
+
+ next: code review · probe
+```
+
+| You want to | Type |
+|---|---|
+| Start a piece of work | `/starter:cycle <what you want>` |
+| Pick it up in a new session | `/starter:cycle` |
+| See where it stands | `/phase` |
+| Stop it | `/starter:cycle off` |
+| Think an idea through first | `/starter:grill <the idea>` |
+| Teach reviews what is risky here | `/starter:review-setup` |
+
+The plan file is the memory, not the conversation: close the session, come back tomorrow, and the cycle continues from the phase the file says.
+
 ## The cycle
 
 The cycle is off by default. You start it for one piece of work with `/starter:cycle <work>`; questions and small fixes never enter it. The session you talk to, the lead, moves the work through six phases and hands off through a plan file, `docs/plans/<slug>.md`, so the build and the reviews start in a clean context instead of the lead's long one.
@@ -43,7 +91,7 @@ Two things work in every session, with no cycle started:
 | Review gate | The `Stop` hook above |
 | `/starter:cycle` | `/starter:cycle <work>` starts a cycle and writes its plan file; with no argument it resumes the open one; `off` stops it |
 | Role agents | `reader` (Sonnet, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, medium) checks a plan or a change with a fresh context. Each role fixes its model and effort |
-| `/phase` | Opens a side pane: `/phase` shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written or resumed, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
+| `/phase` | Opens a side pane: `/phase` shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open; `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | `visual-plan` | Writes a plan in the plan-file format first; an optional visual page of it shows diagrams, the API contract, the data model, items with their checks and open questions |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
 | `/starter:review-setup` | Reads your repo and drafts a short `REVIEW.md`: what failure looks like here, what is risky, what to skip |
