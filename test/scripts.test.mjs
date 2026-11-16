@@ -547,7 +547,7 @@ test('the agent log writes one line per Agent call, nothing when off, and surviv
   assert.deepEqual(agentLog(call, { CLAUDE_PLUGIN_DATA: join(fileURLToPath(import.meta.url), 'x') }), { status: 0, out: '', lines: [] })
 })
 
-test('hooks.json names the subagents pane module and keeps every command hook', () => {
+test('hooks.json names the hooks module and keeps every command hook', () => {
   const plugin = join(scripts, '..')
   const hooks = JSON.parse(readFileSync(join(plugin, 'hooks', 'hooks.json'), 'utf8'))
   assert.deepEqual(hooks.modules, ['./register.tsx'])
