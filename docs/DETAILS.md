@@ -91,6 +91,8 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 
 ### The cycle
 
+![The cycle: six phases on one line, three of them in a clean context, all reading one plan file](../assets/cycle.svg)
+
 `/starter:cycle <work>` starts a cycle for one piece of work; with no argument it resumes the plan whose phase is not `done`, and `off` stops it. It creates the work branch `cycle/<slug>` and commits there after each phase that changed files; it pushes or merges only when asked.
 
 | Phase | Who | What happens |

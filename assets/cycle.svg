@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-label="The cycle. Six phases on one line: gather (lead and you), plan (lead), plan review (reviewer, then you approve), build (writer), code review (reviewer, the writer fixes), probe (lead). Plan review, build and code review run in a clean context that starts from the plan file. Every phase reads and writes docs/plans/slug.md, which holds the phase, the items with their checks, and the log.">
+  <defs>
+    <style>
+      .t{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif}
+      .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+      .h{font-size:13px;letter-spacing:2.5px;fill:#8a8079;font-weight:600}
+      .n{font-size:20px;font-weight:700;fill:#f5f0eb}
+      .d{font-size:15px;fill:#c9beb6}
+      .s{font-size:15px;fill:#a89d96}
+      .card{fill:#232020;stroke:#3a3431;stroke-width:1.5}
+      .tag{fill:none;stroke:#d97757;stroke-width:1.2}
+      .tagt{font-size:13px;font-weight:600;fill:#e7a98f}
+      .num{font-size:15px;font-weight:700}
+      .link{stroke:#5c544e;stroke-width:1.5;stroke-dasharray:3 7;stroke-linecap:round}
+    </style>
+  </defs>
+  <rect width="1200" height="560" rx="24" fill="#161412"/>
+
+  <!-- header -->
+  <g>
+    <text x="40" y="56" class="t h">THE CYCLE</text>
+    <rect x="150" y="34" width="238" height="34" rx="17" class="tag"/>
+    <text x="269" y="56" text-anchor="middle" class="m" font-size="15" font-weight="600" fill="#e7a98f">/starter:cycle &lt;work&gt;</text>
+    <text x="1160" y="56" text-anchor="end" class="t s">off by default · started for one piece of work</text>
+  </g>
+
+  <!-- who holds the context -->
+  <rect x="418" y="92" width="552" height="262" rx="18" fill="#1c1917" stroke="#3a3431" stroke-width="1.5" stroke-dasharray="6 6"/>
+  <text x="694" y="120" text-anchor="middle" class="t h">CLEAN CONTEXT · STARTS FROM THE PLAN FILE</text>
+  <text x="224" y="120" text-anchor="middle" class="t h">YOUR SESSION</text>
+  <text x="1070" y="120" text-anchor="middle" class="t h">YOUR SESSION</text>
+
+  <!-- links to the plan file -->
+  <g class="link">
+    <path d="M130 330 V392"><animate attributeName="stroke-dashoffset" from="0" to="-20" dur="1.6s" repeatCount="indefinite"/></path>
+    <path d="M318 330 V392"><animate attributeName="stroke-dashoffset" from="0" to="-20" dur="1.6s" repeatCount="indefinite"/></path>
+    <path d="M506 330 V392"><animate attributeName="stroke-dashoffset" from="0" to="20" dur="1.6s" repeatCount="indefinite"/></path>
+    <path d="M694 330 V392"><animate attributeName="stroke-dashoffset" from="0" to="20" dur="1.6s" repeatCount="indefinite"/></path>
+    <path d="M882 330 V392"><animate attributeName="stroke-dashoffset" from="0" to="20" dur="1.6s" repeatCount="indefinite"/></path>
+    <path d="M1070 330 V392"><animate attributeName="stroke-dashoffset" from="0" to="20" dur="1.6s" repeatCount="indefinite"/></path>
+  </g>
+
+  <!-- the line -->
+  <path d="M130 196 H1070" stroke="#3a3431" stroke-width="4" stroke-linecap="round"/>
+  <line x1="130" y1="196" x2="130" y2="196" stroke="#d97757" stroke-width="4" stroke-linecap="round">
+    <animate attributeName="x2" dur="10s" repeatCount="indefinite" values="130;318;506;694;882;1070;1070" keyTimes="0;0.17;0.34;0.51;0.68;0.85;1"/>
+  </line>
+
+  <!-- the gate between plan review and build -->
+  <path d="M600 186 L610 196 L600 206 L590 196 Z" fill="#f5f0eb"/>
+  <text x="600" y="178" text-anchor="middle" class="t" font-size="13" font-weight="600" fill="#f5f0eb">you</text>
+
+  <!-- phase names -->
+  <g class="m n" text-anchor="middle">
+    <text x="130" y="160">gather</text>
+    <text x="318" y="160">plan</text>
+    <text x="506" y="160">plan review</text>
+    <text x="694" y="160">build</text>
+    <text x="882" y="160">code review</text>
+    <text x="1070" y="160">probe</text>
+  </g>
+
+  <!-- stations -->
+  <g stroke="#d97757" stroke-width="3">
+    <circle cx="130" cy="196" r="15" fill="#d97757"/>
+    <circle cx="318" cy="196" r="15" fill="#161412"><animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#161412;#d97757" keyTimes="0;0.17"/></circle>
+    <circle cx="506" cy="196" r="15" fill="#161412"><animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#161412;#d97757" keyTimes="0;0.34"/></circle>
+    <circle cx="694" cy="196" r="15" fill="#161412"><animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#161412;#d97757" keyTimes="0;0.51"/></circle>
+    <circle cx="882" cy="196" r="15" fill="#161412"><animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#161412;#d97757" keyTimes="0;0.68"/></circle>
+    <circle cx="1070" cy="196" r="15" fill="#161412"><animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#161412;#d97757" keyTimes="0;0.85"/></circle>
+  </g>
+  <g class="m num" text-anchor="middle">
+    <text x="130" y="201" fill="#161412">1</text>
+    <text x="318" y="201" fill="#f5f0eb">2<animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#f5f0eb;#161412" keyTimes="0;0.17"/></text>
+    <text x="506" y="201" fill="#f5f0eb">3<animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#f5f0eb;#161412" keyTimes="0;0.34"/></text>
+    <text x="694" y="201" fill="#f5f0eb">4<animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#f5f0eb;#161412" keyTimes="0;0.51"/></text>
+    <text x="882" y="201" fill="#f5f0eb">5<animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#f5f0eb;#161412" keyTimes="0;0.68"/></text>
+    <text x="1070" y="201" fill="#f5f0eb">6<animate attributeName="fill" dur="10s" repeatCount="indefinite" calcMode="discrete" values="#f5f0eb;#161412" keyTimes="0;0.85"/></text>
+  </g>
+
+  <!-- who does it, and what -->
+  <g class="t" text-anchor="middle">
+    <rect x="48" y="232" width="164" height="98" rx="14" class="card"/>
+    <rect x="82" y="246" width="96" height="24" rx="12" class="tag"/>
+    <text x="130" y="263" class="m tagt">lead + you</text>
+    <text x="130" y="294" class="d">settles the decisions,</text>
+    <text x="130" y="314" class="d">a few at a time</text>
+
+    <rect x="236" y="232" width="164" height="98" rx="14" class="card"/>
+    <rect x="290" y="246" width="56" height="24" rx="12" class="tag"/>
+    <text x="318" y="263" class="m tagt">lead</text>
+    <text x="318" y="294" class="d">writes the plan file,</text>
+    <text x="318" y="314" class="d">a check for every item</text>
+
+    <rect x="424" y="232" width="164" height="98" rx="14" class="card"/>
+    <rect x="466" y="246" width="80" height="24" rx="12" class="tag"/>
+    <text x="506" y="263" class="m tagt">reviewer</text>
+    <text x="506" y="294" class="d">reads the plan once,</text>
+    <text x="506" y="314" class="d">then you approve</text>
+
+    <rect x="612" y="232" width="164" height="98" rx="14" class="card"/>
+    <rect x="662" y="246" width="64" height="24" rx="12" class="tag"/>
+    <text x="694" y="263" class="m tagt">writer</text>
+    <text x="694" y="294" class="d">builds item by item,</text>
+    <text x="694" y="314" class="d">ticks what passes</text>
+
+    <rect x="800" y="232" width="164" height="98" rx="14" class="card"/>
+    <rect x="842" y="246" width="80" height="24" rx="12" class="tag"/>
+    <text x="882" y="263" class="m tagt">reviewer</text>
+    <text x="882" y="294" class="d">reads the diff,</text>
+    <text x="882" y="314" class="d">the writer fixes</text>
+
+    <rect x="988" y="232" width="164" height="98" rx="14" class="card"/>
+    <rect x="1042" y="246" width="56" height="24" rx="12" class="tag"/>
+    <text x="1070" y="263" class="m tagt">lead</text>
+    <text x="1070" y="294" class="d">runs every check,</text>
+    <text x="1070" y="314" class="d">shows you the output</text>
+  </g>
+
+  <!-- the plan file -->
+  <rect x="40" y="392" width="1120" height="84" rx="16" fill="#1c1917" stroke="#d97757" stroke-width="1.5"/>
+  <text x="68" y="428" class="m" font-size="20" font-weight="700" fill="#f5f0eb">docs/plans/&lt;slug&gt;.md</text>
+  <text x="68" y="454" class="t s">the plan file</text>
+  <g class="m" font-size="15">
+    <rect x="392" y="418" width="150" height="32" rx="8" fill="#232020" stroke="#3a3431"/>
+    <text x="467" y="439" text-anchor="middle" fill="#e7a98f">phase: build</text>
+    <rect x="556" y="418" width="420" height="32" rx="8" fill="#232020" stroke="#3a3431"/>
+    <text x="766" y="439" text-anchor="middle" fill="#c9beb6"><tspan fill="#7fb77e">- [x]</tspan> 3. an item   <tspan fill="#8a8079">check:</tspan> a command that passes</text>
+    <rect x="990" y="418" width="142" height="32" rx="8" fill="#232020" stroke="#3a3431"/>
+    <text x="1061" y="439" text-anchor="middle" fill="#c9beb6">## Log</text>
+  </g>
+
+  <text x="600" y="518" text-anchor="middle" class="t" font-size="17" fill="#f5f0eb">The file is the memory, not the conversation.</text>
+  <text x="600" y="542" text-anchor="middle" class="t s">Every phase reads it, and a new session resumes from the phase it names.</text>
+</svg>
