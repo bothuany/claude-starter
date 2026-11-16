@@ -227,6 +227,45 @@ test('the rules hook injects rules.md into the session, and nothing when the rul
   assert.equal(rulesHook(dir, env), null)
 })
 
+const SOLO_LINE =
+  "Solo mode is on: do the work yourself in this session; don't delegate to subagents unless the user asks. Where the rules below name the `reviewer` or `writer` subagent, do that step yourself: run the `code-review` skill directly and make the fixes in this session."
+const setSolo = (dir, text) => {
+  mkdirSync(join(dir, 'claude-starter'), { recursive: true })
+  writeFileSync(join(dir, 'claude-starter', 'solo'), text)
+}
+
+test('with solo on the rules hook leaves out the delegation section, adds the solo line and keeps the rest', () => {
+  const { dir, env } = configDir()
+  setSolo(dir, 'on\n')
+  const rules = rulesHook(dir, env).additionalContext
+  assert.doesNotMatch(rules, /Delegate to keep the main context clean|Orchestrate, don't queue/)
+  assert.ok(rules.includes(SOLO_LINE))
+  for (const section of ['**Ask before assuming.**', '**Check the docs, not your memory.**', '**Web research.**', '**Verify before you say done.**']) {
+    assert.ok(rules.includes(section), section)
+  }
+})
+
+test('a missing, off or garbage solo file injects the full rules', () => {
+  const { dir, env } = configDir()
+  const full = readFileSync(join(scripts, '..', 'rules.md'), 'utf8').replace(/\r\n/g, '\n').trim()
+  assert.equal(rulesHook(dir, env).additionalContext, full)
+  for (const text of ['off', 'garbage', '']) {
+    setSolo(dir, text)
+    assert.equal(rulesHook(dir, env).additionalContext, full)
+  }
+})
+
+test('the session notice names solo mode only while it is on', () => {
+  const { dir, env } = configDir()
+  const solo = /solo mode is on \(no delegation\): \/solo off to restore/
+  assert.doesNotMatch(run('session-check.mjs', [], dir, env).out, solo)
+  setSolo(dir, 'on')
+  assert.match(run('session-check.mjs', [], dir, env).out, solo)
+  assert.match(run('session-check.mjs', [], dir, env).out, solo)
+  setSolo(dir, 'off')
+  assert.doesNotMatch(run('session-check.mjs', [], dir, env).out, solo)
+})
+
 test('an old rules block in CLAUDE.md holds the hook back until setup removes it, with a backup', () => {
   const { dir, env } = configDir()
   const old = 'mine\r\n\r\n<!-- claude-starter:begin deadbeef -->\r\nold rules\r\n<!-- claude-starter:end -->\r\n\r\nafter\r\n'

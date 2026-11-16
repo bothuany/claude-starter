@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews what it changed, and cleans up after itself. Every piece that changes how Claude works was measured before it shipped.
 
-[![version 0.9.6](https://img.shields.io/badge/version-0.9.6-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.9.7](https://img.shields.io/badge/version-0.9.7-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -15,7 +15,7 @@ Works from your next session. Nothing is written to your `CLAUDE.md`. Needs Node
 
 ![How claude-starter works. Hooks load the rules at session start, log every subagent call and run the review gate at stop. You shape an idea with /grill, visual-plan and /review-setup. The lead makes small fixes itself and picks a role by the type of task: locator (Haiku) finds and lists, reader (Opus, medium) reads and reports, writer (Sonnet, high) changes files and is sent again on Opus when its checks fail twice, reviewer (Opus, high) checks with a fresh context and REVIEW.md. For a task that fits no role the lead picks the model and effort itself. diff-walkthrough, /clean-worktrees and /monthly-review come after.](assets/how-it-works.svg)
 
-You talk to one session, the lead. It asks what it can't look up, plans, and hands the work out. It makes small fixes itself and delegates the rest, so its context stays free for decisions.
+You talk to one session, the lead. It asks what it can't look up, plans, and hands the work out. It keeps short, dependent edits and delegates the rest, so its context stays free for decisions. Its own edits are budgeted per request (3 files or 60 changed lines); past that the rest goes to a `writer` automatically.
 
 - **Reading fans out.** A Haiku `locator` finds and lists files, Explore does wide reading, and web research goes through obscura or WebSearch. Only conclusions come back.
 - **Writing never overlaps.** Independent pieces each get their own writer, in parallel, on Sonnet at high effort; a writer is re-sent on Opus when its checks fail twice. No two writers own the same file: parallel agents writing the same code fail at the merge ([ParallACT](https://arxiv.org/abs/2611.00314): 62% → 16% on conflicting tasks).
@@ -29,6 +29,7 @@ You talk to one session, the lead. It asks what it can't look up, plans, and han
 | Review gate | A `Stop` hook. If the session changed enough code and no review ran, it asks for one, once |
 | Role agents | `locator` (Haiku) finds and lists, `reader` (Opus, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, high) checks with a fresh context. The lead picks the role; the role fixes model and effort |
 | `/subagents` | Opens a live side panel of subagents, closed by default: compact shows each running agent as a card with its current tool, a duration bar, tokens and estimated cost, and each finished one as a single line, and extended (`/subagents extended`, or `m` in the panel) adds the lead card, READ/WRITE/CHECK lanes and an events feed |
+| `/solo` | `/solo on` runs everything in the main session: no delegation rules, no edit budget; `/solo off` restores orchestration |
 | `/starter:fan-out` | Hands an approved plan to a workflow outside your session: one builder, then one fresh reviewer |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
 | `visual-plan` | Turns a plan into a visual contract: diagrams, API contract, data model, open questions |

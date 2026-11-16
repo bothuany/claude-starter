@@ -10,10 +10,11 @@
 try {
   const { existsSync, mkdirSync, readFileSync, writeFileSync } = await import('node:fs')
   const { join } = await import('node:path')
-  const { oldBlockState } = await import('./rules-block.mjs')
+  const { oldBlockState, soloOn } = await import('./rules-block.mjs')
   const { MEMORY_BYTES, MEMORY_LINES, remindersOff, status } = await import('./review.mjs')
 
   const notes = []
+  if (soloOn()) notes.push('solo mode is on (no delegation): /solo off to restore')
   const dataDir = process.env.CLAUDE_PLUGIN_DATA || ''
   const old = oldBlockState()
   if (old === 'present') {

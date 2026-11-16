@@ -16,6 +16,24 @@ export function rulesText() {
   return readFileSync(join(pluginRoot, 'rules.md'), 'utf8').replace(/\r\n/g, '\n').trim()
 }
 
+// `/solo on|off` in the plugin's hooks module writes this file; a command hook can't read the module's store.
+const soloFile = join(configDir, 'claude-starter', 'solo')
+const SOLO_LINE =
+  "Solo mode is on: do the work yourself in this session; don't delegate to subagents unless the user asks. Where the rules below name the `reviewer` or `writer` subagent, do that step yourself: run the `code-review` skill directly and make the fixes in this session."
+
+export function soloOn() {
+  try {
+    return readFileSync(soloFile, 'utf8').trim() === 'on'
+  } catch {
+    return false
+  }
+}
+
+// The rules without the delegation section, which the solo line stands in for.
+export function soloRules(text) {
+  return text.replace(/\*\*Delegate to keep the main context clean\.\*\*[\s\S]*?(?=\n\n\*\*)/, SOLO_LINE)
+}
+
 // True when the user turned the rules off in /starter:setup (a flag in the plugin's data dir). `rules-skipped` is the
 // flag older versions wrote when the user declined the rules.
 export function rulesOff(dataDir) {

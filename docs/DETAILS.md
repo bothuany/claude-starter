@@ -60,7 +60,9 @@ New MCP servers show up after a restart.
 | `/starter:fan-out <plan file or parts>` | Hand an approved plan to the workflow yourself. For a very large plan it asks, with a cost estimate, whether to use parallel workers |
 | `/starter:clean-worktrees` | List worktrees and branches, propose what's safe to remove, ask, then remove it. Add `all-merged` to skip the question, or `--into <branch>` to measure "merged" against another branch |
 | `/starter:monthly-review` | Run the monthly review. `off` stops the reminder; `on` brings it back |
+| `/solo on`, `/solo off`, `/solo` | Solo mode, remembered across sessions: the next sessions get the rules without the delegation section, the lead edit budget is off, and the session notice says so; `/solo off` restores orchestration, and `/solo` shows the state. The switch reaches the rules hook through `claude-starter/solo` in the config dir (`CLAUDE_CONFIG_DIR`, else `~/.claude`) |
 | `CLAUDE_STARTER_REVIEW_GATE=off` | Turn the review gate off from settings (`off`, `0`, `false` or `no`) |
+| `CLAUDE_STARTER_LEAD_BUDGET=off` | Turn the lead edit budget off from settings (`off`, `0`, `false` or `no`), read at session start |
 
 To turn the gate off for every session, add this to `~/.claude/settings.json`:
 
@@ -75,7 +77,7 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 - **Ask before assuming.** If a request is ambiguous in a way that changes the result, ask, at most 4 questions with a recommended option first. Don't ask what you can look up.
 - **Check the docs, not memory.** Look up a third-party API before writing against it (context7, or the official docs), and say which version you checked.
 - **Web research.** Use obscura first when it's connected; fall back to WebSearch and WebFetch, and say so.
-- **Delegate.** Small fixes (roughly under 30 lines) stay in the main session; larger rewrites and wide reading go to subagents that return conclusions, not file dumps. Independent pieces each get their own writer, in parallel, never on the same file, and a finished piece is reviewed while the others are still being written. In work judged by eye the subagent applies and the main session compares. Suggest fan-out for big approved plans, and start it only when you agree. Read a worker's diff; don't trust its summary.
+- **Delegate.** Short, dependent edits stay in the main session, budgeted per request (3 files or 60 changed lines, enforced by the plugin; `.md`/`.txt` files and files outside the project don't count, and the count starts over with each new request); reading across about 10 or more files and independent pieces of work go to subagents that return conclusions, not file dumps. Independent pieces each get their own writer, in parallel, never on the same file, and a finished piece is reviewed while the others are still being written. In work judged by eye the subagent applies and the main session compares. Suggest fan-out for big approved plans, and start it only when you agree. Read a worker's diff; don't trust its summary.
 - **Verify before you say done.** Run the project's tests, type check and lint, and report failures word for word. Send risky changes (network, permissions, stored data) to an independent `code-review` and handle every finding with evidence; a change that only alters how something looks needs the tests and a side-by-side check. Say plainly what wasn't verified.
 
 ### Review that runs when it matters, and findings that need evidence
@@ -258,6 +260,7 @@ The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). W
 - **A plan where the parts are too big for one session's context**, the case fan-out is meant for. Both benchmark plans fit in one Sonnet session.
 - **The 0.5.0 evidence rule's effect** on acting on findings.
 - **The review's catch rate** on seeded defects, and `low` vs `medium`.
+- **The lead edit budget.** Its thresholds (3 files / 60 lines) are a judgement call, and its effect on how much the lead delegates isn't measured.
 
 ## Context cost
 
