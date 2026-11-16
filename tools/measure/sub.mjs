@@ -8,9 +8,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects')
+// A flag with no value after it comes back as '', which does not parse and ends in the usage error.
 const dateArg = name => {
   const i = process.argv.indexOf(name)
-  return i > 1 ? process.argv[i + 1] : undefined
+  return i > 1 ? process.argv[i + 1] ?? '' : undefined
 }
 const sinceArg = dateArg('--since'), cutArg = dateArg('--cut')
 const SINCE = Date.parse(sinceArg ?? '')
@@ -18,6 +19,10 @@ const CUT = cutArg === undefined ? undefined : Date.parse(cutArg)
 if (Number.isNaN(SINCE) || Number.isNaN(CUT)) {
   console.error('usage: node sub.mjs --since <date, e.g. 2026-11-01> [--cut <date>]')
   process.exit(1)
+}
+if (!existsSync(root)) {
+  console.log(`no transcripts found under ${root}`)
+  process.exit(0)
 }
 const k = n => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`)
 const q = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : 0 }
@@ -59,6 +64,10 @@ for (const project of readdirSync(root)) {
   }
 }
 const sessions = [...byFirst.values()]
+if (!sessions.length) {
+  console.log(`no sessions found since ${sinceArg}`)
+  process.exit(0)
+}
 console.log(`unique sessions (forks and resumes folded): ${sessions.length}`)
 const peaks = sessions.map(s => Math.max(...s.main.map(r => r.ctx)))
 console.log(`peak main context: median ${k(q(peaks, 0.5))}, p75 ${k(q(peaks, 0.75))}, p90 ${k(q(peaks, 0.9))}; over 200k: ${peaks.filter(p => p > 2e5).length}, over 500k: ${peaks.filter(p => p > 5e5).length}`)

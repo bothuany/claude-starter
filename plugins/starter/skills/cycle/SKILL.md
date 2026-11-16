@@ -35,4 +35,6 @@ Start `writer` and `reviewer` as named roles, never as a fork: a fork inherits t
 - **Ticks:** `- [x]` and `- [X]` both count. The writer ticks an item only after its check passes. CRLF line ends and a BOM are tolerated.
 - **`## Log`:** the lead adds one line `- <phase>: <evidence>` each time it moves `phase` on.
 
+Lines inside a fenced code block are not items, sections or log lines.
+
 At each phase change the lead moves `phase:`, sets or clears `waiting: user`, and writes the log line.

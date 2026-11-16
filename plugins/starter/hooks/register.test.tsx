@@ -87,17 +87,26 @@ function world(on: On, entries: Record<string, unknown> = {}, root = ROOT, withC
   const definitions = new Map<string, string>()
   const unreadable = new Set<string>()
   const seen = { call: '' }
+  const reads: string[] = []
   const panes: string[] = []
-  on('session.root', () => ({ value: root }))
+  const where = { root }
+  on('session.root', () => ({ value: where.root }))
   on('fs.read', (_, e) => {
     const path = norm(e.path)
+    reads.push(path)
     const name = path.split('/').pop()!
     if (unreadable.has(name)) throw new Error('busy')
     const text = path.includes('/agents/') ? definitions.get(name) : files.get(path)
     if (text === undefined) throw new Error('ENOENT')
     return { value: text }
   })
-  on('fs.list', () => ({ value: [...definitions.keys()].map(name => ({ name, kind: 'file' as const, size: 0, mtimeMs: 0, isLink: false })) }))
+  on('fs.list', (_, e) => {
+    const dir = norm(e.path)
+    const names = dir.endsWith('/docs/plans')
+      ? [...files.keys()].filter(f => f.startsWith(`${dir}/`) && !f.slice(dir.length + 1).includes('/')).map(f => f.slice(dir.length + 1))
+      : [...definitions.keys()]
+    return { value: names.map(name => ({ name, kind: 'file' as const, size: 0, mtimeMs: 0, isLink: false })) }
+  })
   on('ui.open', (_, e) => {
     if (!panes.includes(e.id)) panes.push(e.id)
     return { value: { isPlaced: true } }
@@ -117,7 +126,7 @@ function world(on: On, entries: Record<string, unknown> = {}, root = ROOT, withC
     return { result: {} }
   })
   files.set(PLAN, planText())
-  return { time: time!, files, definitions, unreadable, panes, store, broken, call: () => seen.call }
+  return { time: time!, files, definitions, unreadable, panes, store, broken, reads, where, call: () => seen.call }
 }
 
 async function start($: Engine, time: ReturnType<typeof mock.clock>) {
@@ -204,13 +213,13 @@ test('a stored plan is read by the contract: continuations, a backticked check, 
   ])
 })
 
-test('a plan without a cycle key is no cycle plan: it is forgotten at start and an edit to it opens nothing', async ($, on) => {
+test('a plan without a cycle key is no cycle plan: it is not shown, its stored key stays, and an edit to it opens nothing', async ($, on) => {
   const { time, files, panes, store } = world(on, { [KEY]: PLAN, open: false })
   files.set(PLAN, planText().replace('cycle: rate-limiter\n', ''))
   files.set('c:/work/proj/docs/plans/notes.md', '# notes\n\n## Items\n- [ ] 1. x\n')
 
   await start($, time)
-  expect(store.has(KEY)).toBe(false)
+  expect(store.has(KEY)).toBe(true)
   expect(await texts($)).toEqual([NONE])
 
   await $.tool.call(edit('C:\\work\\proj\\docs\\plans\\notes.md'))
@@ -366,6 +375,7 @@ test('the writer line is gone when the writer ends, and the card keeps the phase
 
 test('with no plan the pane is one dim line naming /starter:cycle', async ($, on) => {
   const w = world(on)
+  w.files.clear()
   await start($, w.time)
 
   expect(await texts($)).toEqual([NONE])
@@ -377,18 +387,20 @@ test('with no plan the pane is one dim line naming /starter:cycle', async ($, on
 test("another project's stored plan is not shown, and this project's own is", async ($, on) => {
   const other = 'c:/other/work/docs/plans/rate-limiter.md'
   const w = world(on, { 'plan:c:/other/work': other, open: true })
+  w.files.clear()
   w.files.set(other, planText())
   await start($, w.time)
 
   expect(await texts($)).toEqual([NONE])
   expect(w.store.get('plan:c:/other/work')).toBe(other)
 
+  w.files.set(PLAN, planText())
   w.store.set(KEY, PLAN)
   await start($, w.time)
   expect((await texts($))[0]).toBe('rate-limiter')
 })
 
-test('a plan that is done or whose file is gone is forgotten at start', async ($, on) => {
+test('a stored plan that parses as done is forgotten at start; one whose file cannot be read is kept', async ($, on) => {
   const w = world(on, { [KEY]: PLAN })
   w.files.set(PLAN, planText({ phase: 'done' }))
   await start($, w.time)
@@ -398,7 +410,7 @@ test('a plan that is done or whose file is gone is forgotten at start', async ($
   w.store.set(KEY, PLAN)
   w.files.delete(PLAN)
   await start($, w.time)
-  expect(w.store.has(KEY)).toBe(false)
+  expect(w.store.get(KEY)).toBe(PLAN)
   expect(await texts($)).toEqual([NONE])
 })
 
@@ -409,7 +421,7 @@ test('/phase opens the pane and closes it when it is open, and a later session r
 
   expect((await $.command.run({ ...COMMAND, args: '' })).text).toBe('Phase pane opened.')
   expect(w.panes).toEqual(['phase'])
-  expect(w.store.get('open')).toBe(true)
+  expect(w.store.get('open:c:/work/proj')).toBe(true)
 
   w.panes.length = 0
   await start($, w.time)
@@ -417,7 +429,7 @@ test('/phase opens the pane and closes it when it is open, and a later session r
 
   expect((await $.command.run({ ...COMMAND, args: '' })).text).toBe('Phase pane closed.')
   expect(w.panes).toEqual([])
-  expect(w.store.has('open')).toBe(false)
+  expect(w.store.has('open:c:/work/proj')).toBe(false)
 
   await start($, w.time)
   expect(w.panes).toEqual([])
@@ -425,6 +437,7 @@ test('/phase opens the pane and closes it when it is open, and a later session r
 
 test('an Edit, Write or MultiEdit that leaves a cycle plan under docs/plans opens the pane and stores the plan for this root', async ($, on) => {
   const w = world(on)
+  w.files.clear()
   await start($, w.time)
 
   // Not a plan: no cycle key, a finished cycle, another folder, another suffix.
@@ -438,6 +451,7 @@ test('an Edit, Write or MultiEdit that leaves a cycle plan under docs/plans open
   expect(w.store.get(KEY)).toBeUndefined()
 
   // A subagent's Write counts the same.
+  w.files.set(PLAN, planText())
   await $.tool.call({ tool: 'Write', file_path: PLAN_EDIT, content: 'x', agentId: 'a1' })
   expect(w.panes).toEqual(['phase'])
   expect(w.store.get(KEY)).toBe(PLAN)
@@ -499,22 +513,26 @@ test('the agent line shows the explicit effort, else the role pin, and a failed 
   let n = 0
   on('agent.spawn', (_, e) => ({ model: e.model === 'opus' ? 'claude-opus-5-5' : 'claude-sonnet-5-5', agentId: `a${++n}` }))
   await start($, w.time)
-  const run = async (type: string, model?: string) => {
+  let turns = 0
+  // The card shows only the agent of the phase's role, so each run sets the phase it belongs to.
+  const run = async (type: string, phase: string, model?: string) => {
+    w.files.set(PLAN, planText({ phase }))
+    await $.turn.start({ text: 'go', turnId: `t${++turns}` })
     await $.agent.spawn(spawn(w.call(), type, model))
     const line = await agentLine($)
     await $.turn.complete(complete(`a${n}`))
     return line
   }
 
-  expect(await run('starter:writer')).toBe(' ▍ writer · Sonnet 5.5 · high')
-  expect(await run('general-purpose')).toBe(' ▍ general-purpose · Sonnet 5.5')
+  expect(await run('starter:writer', 'build')).toBe(' ▍ writer · Sonnet 5.5 · high')
+  expect(await run('starter:reviewer', 'plan-review', 'opus')).toBe(' ▍ reviewer · Opus 5.5')
   // reader.md cannot be read yet, so its pin is unknown; the read is tried again at the next spawn.
-  expect(await run('starter:reader', 'opus')).toBe(' ▍ reader · Opus 5.5')
+  expect(await run('starter:reader', 'gather', 'opus')).toBe(' ▍ reader · Opus 5.5')
   w.unreadable.clear()
-  expect(await run('starter:reader', 'opus')).toBe(' ▍ reader · Opus 5.5 · medium')
+  expect(await run('starter:reader', 'gather', 'opus')).toBe(' ▍ reader · Opus 5.5 · medium')
 
   await $.tool.call({ tool: 'Agent', subagent_type: 'starter:reader', model: 'opus', effort: 'max', description: 'd', prompt: 'p' })
-  expect(await run('starter:reader', 'opus')).toBe(' ▍ reader · Opus 5.5 · max')
+  expect(await run('starter:reader', 'gather', 'opus')).toBe(' ▍ reader · Opus 5.5 · max')
 })
 
 test('a Bash target is the program and one plain word, never the rest of the command', async ($, on) => {
@@ -552,9 +570,9 @@ test('a denied or rejected spawn leaves no agent line, and a turn that ends befo
   await $.agent.spawn({ ...spawn('u2', 'starter:writer'), prompt: 'throw' }).catch(() => undefined)
   expect(await lines()).toEqual([])
 
-  const spawning = $.agent.spawn(spawn('u3', 'general-purpose'))
+  const spawning = $.agent.spawn(spawn('u3', 'starter:writer'))
   await w.time.settle()
-  expect(await lines()).toEqual([' ▍ general-purpose · …', ' ▍ ⠼ starting'])
+  expect(await lines()).toEqual([' ▍ writer · …', ' ▍ ⠼ starting'])
   await $.turn.complete(complete('a1'))
   await w.time.advance(10)
   await spawning
@@ -585,7 +603,7 @@ test('an agent whose clock reads before its start draws 0:00 instead of throwing
   on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
   await start($, w.time)
 
-  await $.agent.spawn(spawn('u1', 'general-purpose'))
+  await $.agent.spawn(spawn('u1', 'starter:writer'))
   t = 2000
 
   expect((await screen($))[5]).toBe(' ▍ Build'.padEnd(40) + '0:00')
@@ -630,4 +648,183 @@ test('no drawn text starts or ends with whitespace or holds two spaces in a row,
       await ui.unmount()
     }
   }
+})
+
+// Review fix 1: a plan edited by a path in another valid form.
+test('a plan path as ./relative, in another letter case or with .. is recognised, and one outside the root is ignored', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  await start($, w.time)
+
+  const outside = [win('../other/docs/plans/d.md'), win('docs/plans/d.md', `${ROOT}2`), win('../docs/plans/d.md'), win('docs/plans/../../x.md')]
+  for (const file of ['c:/work/other/docs/plans/d.md', 'c:/work/proj2/docs/plans/d.md', 'c:/work/docs/plans/d.md', 'c:/work/proj/x.md']) w.files.set(file, planText())
+  for (const file of outside) await $.tool.call(edit(file))
+  expect(w.panes).toEqual([])
+  expect(w.store.get(KEY)).toBeUndefined()
+
+  const mixed = ROOT.replace('work', 'Work').replace('proj', 'Proj')
+  const forms: [string, string][] = [
+    ['./docs/plans/a.md', 'a'],
+    [win('docs/plans/b.md', mixed), 'b'],
+    [win('src/../docs/plans/c.md'), 'c'],
+  ]
+  for (const [file, name] of forms) {
+    w.files.set(`c:/work/proj/docs/plans/${name}.md`, planText({ cycle: name }))
+    w.panes.length = 0
+    await $.tool.call(edit(file))
+    expect(w.panes).toEqual(['phase'])
+    expect(w.store.get(KEY)).toBe(`c:/work/proj/docs/plans/${name}.md`)
+    expect((await texts($))[0]).toBe(name)
+  }
+})
+
+// Review fix 2: finding a cycle that no edit of this session has touched.
+const PLANS = 'c:/work/proj/docs/plans'
+
+test('with no stored plan the first open cycle plan in docs/plans is found at start, in name order, and nothing is stored', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  w.files.set(`${PLANS}/d.md`, planText({ cycle: 'dee' }))
+  w.files.set(`${PLANS}/c.md`, planText({ cycle: 'cee' }))
+  w.files.set(`${PLANS}/b.md`, planText({ cycle: 'bee', phase: 'done' }))
+  w.files.set(`${PLANS}/a.md`, '# no cycle key\n')
+  await start($, w.time)
+
+  expect((await texts($))[0]).toBe('cee')
+  expect(w.store.get(KEY)).toBeUndefined()
+})
+
+test('a stored plan whose file cannot be read keeps its key, and the listing is used meanwhile', async ($, on) => {
+  const gone = `${PLANS}/gone.md`
+  const w = world(on, { [KEY]: gone })
+  w.files.clear()
+  w.files.set(`${PLANS}/c.md`, planText({ cycle: 'cee' }))
+  await start($, w.time)
+
+  expect((await texts($))[0]).toBe('cee')
+  expect(w.store.get(KEY)).toBe(gone)
+})
+
+test('at most 50 plan files are read, in name order', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  for (let i = 54; i >= 0; i--) w.files.set(`${PLANS}/f${String(i).padStart(2, '0')}.md`, '# notes\n')
+  w.files.set(`${PLANS}/zz.md`, planText({ cycle: 'late' }))
+  await start($, w.time)
+
+  expect(w.reads.filter(path => path.startsWith(`${PLANS}/`))).toEqual(Array.from({ length: 50 }, (_, i) => `${PLANS}/f${String(i).padStart(2, '0')}.md`))
+  expect(await texts($)).toEqual([NONE])
+})
+
+test('with no cycle loaded, /phase looks for one', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  await start($, w.time)
+  expect(await texts($)).toEqual([NONE])
+
+  w.files.set(`${PLANS}/c.md`, planText({ cycle: 'cee' }))
+  await $.command.run({ ...COMMAND, args: '' })
+  expect((await texts($))[0]).toBe('cee')
+
+})
+
+test('with no cycle loaded, the start of a main-session turn looks for one', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  await start($, w.time)
+  w.files.set(`${PLANS}/c.md`, planText({ cycle: 'cee' }))
+
+  await $.turn.start({ text: 'go', turnId: 't1', agentId: 'a1' })
+  expect(await texts($)).toEqual([NONE])
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  expect((await texts($))[0]).toBe('cee')
+})
+
+// Review fix 3: a fenced block holds examples.
+test('headings, items and log lines inside a fenced block are not the plan', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN })
+  const fence = '`'.repeat(3)
+  const items = ['- [x] 1. one', `${fence}md`, '## Log', '- [ ] 2. an example', '- fake: line', fence, '- [ ] 3. three']
+  w.files.set(PLAN, planText({ phase: 'plan-review' }, items, ['- gather: 3 decisions', fence, '- fake: line', fence]))
+  await start($, w.time)
+
+  const lines = await content($)
+  expect(lines.find(l => l.includes('checks'))).toBe(' ▍ checks ████████░░░░░░░░ 1/2')
+  expect(lines.filter(l => l.includes('fake'))).toEqual([])
+  expect(lines.filter(l => l.startsWith(' ✓'))).toEqual([' ✓ gather  3 decisions'])
+})
+
+// Review fix 4: the card shows an agent of the phase's role only.
+test('the card shows the newest running agent of the phase role, and none when there is none', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN })
+  let n = 0
+  on('agent.spawn', (_, e) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: `a${++n}` }))
+  await start($, w.time)
+  const card = async () => (await screen($)).filter(l => l.startsWith(' ▍ ') && !l.includes('checks'))
+
+  await $.agent.spawn(spawn('u1', 'starter:writer'))
+  await $.agent.spawn(spawn('u2', 'Explore', 'haiku'))
+  expect((await card())[1]).toBe(' ▍ writer · Sonnet 5.5')
+
+  // The phase moves on while the writer still runs: a writer is not the code reviewer.
+  w.files.set(PLAN, planText({ phase: 'code-review' }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  expect(await card()).toEqual([' ▍ Code review'])
+
+  await $.agent.spawn(spawn('u3', 'starter:reviewer', 'opus'))
+  expect((await card())[1]).toBe(' ▍ reviewer · Opus')
+})
+
+test('at most 20 running agents are tracked, the oldest dropped first', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN })
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `a${++n}` }))
+  await start($, w.time)
+  const writerShown = async () => (await screen($)).some(l => l.startsWith(' ▍ writer'))
+
+  await $.agent.spawn(spawn('u0', 'starter:writer'))
+  for (let i = 1; i < 20; i++) await $.agent.spawn(spawn(`u${i}`, 'Explore'))
+  expect(await writerShown()).toBe(true)
+  await $.agent.spawn(spawn('u20', 'Explore'))
+  expect(await writerShown()).toBe(false)
+})
+
+// Review fix 5: the pane opens by itself only for a plan that becomes the open cycle, and its flag is per root.
+test('a pane the person closed stays closed when the open plan is edited again', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN })
+  await start($, w.time)
+  await $.command.run({ ...COMMAND, args: '' })
+  await $.command.run({ ...COMMAND, args: '' })
+  expect(w.panes).toEqual([])
+
+  await $.tool.call(edit(PLAN_EDIT))
+  await $.tool.call(edit(PLAN_EDIT))
+  expect(w.panes).toEqual([])
+  expect(w.store.has('open:c:/work/proj')).toBe(false)
+  expect(w.store.has('open')).toBe(false)
+})
+
+test('the open flag is per project root, needs a loaded cycle, and the old global flag is handed to one root and removed', async ($, on) => {
+  const other = 'c:/other/work/docs/plans/o.md'
+  const w = world(on, { [KEY]: PLAN, 'plan:c:/other/work': other, open: true })
+  w.files.set(other, planText({ cycle: 'other' }))
+
+  await start($, w.time)
+  expect(w.panes).toEqual(['phase'])
+  expect(w.store.get('open:c:/work/proj')).toBe(true)
+  expect(w.store.has('open')).toBe(false)
+
+  // Another project: no flag of its own, so the pane stays closed, though its cycle is loaded.
+  w.panes.length = 0
+  w.where.root = 'C:\\other\\work'
+  await start($, w.time)
+  expect(w.panes).toEqual([])
+  expect((await texts($))[0]).toBe('other')
+
+  // The flag without a cycle opens nothing.
+  w.where.root = ROOT
+  w.files.clear()
+  await start($, w.time)
+  expect(w.store.get('open:c:/work/proj')).toBe(true)
+  expect(w.panes).toEqual([])
 })

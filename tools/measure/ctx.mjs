@@ -2,14 +2,15 @@
 // prints aggregates only (no content).
 //
 //   node ctx.mjs --since <date> [--cut <date>]    sessions that started on or after --since; --cut adds a before/after split
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects')
+// A flag with no value after it comes back as '', which does not parse and ends in the usage error.
 const dateArg = name => {
   const i = process.argv.indexOf(name)
-  return i > 1 ? process.argv[i + 1] : undefined
+  return i > 1 ? process.argv[i + 1] ?? '' : undefined
 }
 const sinceArg = dateArg('--since'), cutArg = dateArg('--cut')
 const SINCE = Date.parse(sinceArg ?? '')
@@ -17,6 +18,10 @@ const CUT = cutArg === undefined ? undefined : Date.parse(cutArg)
 if (Number.isNaN(SINCE) || Number.isNaN(CUT)) {
   console.error('usage: node ctx.mjs --since <date, e.g. 2026-11-01> [--cut <date>]')
   process.exit(1)
+}
+if (!existsSync(root)) {
+  console.log(`no transcripts found under ${root}`)
+  process.exit(0)
 }
 const CAT = name =>
   /^(Read|Grep|Glob|NotebookRead)$/.test(name) ? 'read'
@@ -36,7 +41,9 @@ for (const project of readdirSync(root)) {
     const path = join(root, project, f)
     if (statSync(path).mtimeMs < SINCE) continue
     const tools = new Map() // tool_use id -> name
-    const items = [] // { cat, chars, at: request index when it entered context }
+    const items = [] // { cat, chars, at: request index when it entered context, cb: compactions before it }
+    const bounds = [] // request index of each compact_boundary of the main session
+    const push = (cat, chars) => items.push({ cat, chars, at: requests, cb: bounds.length })
     const seen = new Set()
     let requests = 0, peak = 0, compactions = 0, first = 0, model = {}, starter = 0, agents = 0
     const total = { in: 0, read: 0, write: 0, out: 0 }
@@ -45,7 +52,7 @@ for (const project of readdirSync(root)) {
       let e
       try { e = JSON.parse(line) } catch { continue }
       if (e.isSidechain) continue
-      if (e.type === 'system' && e.subtype === 'compact_boundary') compactions++
+      if (e.type === 'system' && e.subtype === 'compact_boundary') { compactions++; bounds.push(requests) }
       if (e.type !== 'user' && e.type !== 'assistant') continue
       first ||= Date.parse(e.timestamp) || 0
       const content = e.message?.content
@@ -63,26 +70,27 @@ for (const project of readdirSync(root)) {
           model[m] = (model[m] || 0) + 1
         }
         if (Array.isArray(content)) for (const b of content) {
-          if (b?.type === 'text') items.push({ cat: 'assistant-text', chars: b.text.length, at: requests })
+          if (b?.type === 'text') push('assistant-text', b.text.length)
           if (b?.type === 'tool_use') {
             tools.set(b.id, b.name)
             const c = CAT(b.name)
             if (c === 'agent') { agents++; if (String(b.input?.subagent_type || '').startsWith('starter:')) starter++ }
-            items.push({ cat: c === 'edit' ? 'edit-input' : c === 'agent' ? 'agent-prompt' : 'other-input', chars: JSON.stringify(b.input ?? {}).length, at: requests })
+            push(c === 'edit' ? 'edit-input' : c === 'agent' ? 'agent-prompt' : 'other-input', JSON.stringify(b.input ?? {}).length)
           }
         }
       } else if (typeof content === 'string') {
-        items.push({ cat: e.isCompactSummary ? 'compact-summary' : 'user-text', chars: content.length, at: requests })
+        push(e.isCompactSummary ? 'compact-summary' : 'user-text', content.length)
       } else if (Array.isArray(content)) for (const b of content) {
-        if (b?.type === 'tool_result') items.push({ cat: `${CAT(tools.get(b.tool_use_id) || '?')}-result`, chars: len(b.content), at: requests })
-        else if (b?.type === 'text') items.push({ cat: e.isCompactSummary ? 'compact-summary' : 'user-text', chars: b.text.length, at: requests })
+        if (b?.type === 'tool_result') push(`${CAT(tools.get(b.tool_use_id) || '?')}-result`, len(b.content))
+        else if (b?.type === 'text') push(e.isCompactSummary ? 'compact-summary' : 'user-text', b.text.length)
       }
     }
     if (requests < 5 || first < SINCE) continue
     const raw = {}, weighted = {}
     for (const it of items) {
       raw[it.cat] = (raw[it.cat] || 0) + it.chars
-      weighted[it.cat] = (weighted[it.cat] || 0) + it.chars * Math.max(0, requests - it.at) // re-read on every later request
+      // Re-read on every later request until the next compaction removes it from context (or the session ends).
+      weighted[it.cat] = (weighted[it.cat] || 0) + it.chars * Math.max(0, (bounds[it.cb] ?? requests) - it.at)
     }
     const top = Object.entries(model).sort((a, b) => b[1] - a[1])[0][0]
     sessions.push({ project, id: f.slice(0, 8), first, requests, peak, compactions, model: top.replace('claude-', ''), agents, starter, raw, weighted, total })
@@ -110,6 +118,10 @@ function report(name, list) {
   for (const c of ORDER) if (raw[c]) console.log(`${c.padEnd(18)}${pct(raw[c], rawAll).padStart(8)}${pct(w[c], wAll).padStart(22)}`)
 }
 
+if (!sessions.length) {
+  console.log(`no sessions found since ${sinceArg}`)
+  process.exit(0)
+}
 report('ALL', sessions)
 if (CUT !== undefined) {
   report(`before ${cutArg}`, sessions.filter(s => s.first < CUT))

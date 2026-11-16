@@ -34,11 +34,11 @@ Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the O
 
 | Piece | Kind | What it does |
 |---|---|---|
-| **Working rules** | `SessionStart` hook, 445 words per session | Short rules: ask before assuming, check the docs, route web research, delegate wide reading, verify before saying done ([read them](plugins/starter/rules.md)) |
+| **Working rules** | `SessionStart` hook, 450 words per session | Short rules: ask before assuming, check the docs, route web research, delegate wide reading, verify before saying done ([read them](plugins/starter/rules.md)) |
 | **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping; a change that is not risky gets a one-line answer |
 | **`cycle`** | Skill (you run it) | Runs one piece of work through gather, plan, plan review, build, code review and probe, handing off through a plan file; off unless you start it |
 | **Role agents** | `reader` (Sonnet, medium), `writer` (Sonnet, high), `reviewer` (Opus, medium) | Each role fixes its model and effort; they are started by name and start clean |
-| **`/phase`** | Mod command and pane | Shows the open cycle's phase, the running agent and the plan's finished items |
+| **`/phase`** | Mod command and pane | Shows the open cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written or resumed, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | **`visual-plan`** | Skill | Writes a plan in the plan-file format first; an optional visual page of it |
 | **`grill`**, **`review-setup`** | Skills (you run them) | Interview you about a loose idea; draft a short `REVIEW.md` for your repo |
 | **`clean-worktrees`** | Skill (you run it) | Removes clean, merged worktrees and branches, and never deletes through links into your main checkout |
@@ -68,7 +68,7 @@ New MCP servers show up after a restart.
 |---|---|
 | `/starter:setup` | Show and apply the setup above. `/starter:setup check` only reports the current state |
 | `/starter:cycle <work>` | Start a cycle for one piece of work and write its plan file. With no argument it resumes the open cycle; `off` stops it |
-| `/phase` | Open the cycle pane: the phase, the running agent and the plan's finished items |
+| `/phase` | Open or close the cycle pane: the phase, the running agent and the plan's finished items. It also opens by itself when a cycle's plan file is first written or resumed, and stays closed for that plan once you close it |
 | `/starter:clean-worktrees` | List worktrees and branches, propose what's safe to remove, ask, then remove it. Add `all-merged` to skip the question, or `--into <branch>` to measure "merged" against another branch |
 | `/starter:monthly-review` | Run the monthly review. `off` stops the reminder; `on` brings it back |
 | `CLAUDE_STARTER_REVIEW_GATE=off` | Turn the review gate off from settings (`off`, `0`, `false` or `no`) |
@@ -109,7 +109,7 @@ The plan file is `docs/plans/<slug>.md`, at most about 150 lines. The skill, the
 - **`## Items`:** one line `- [ ] N. <text>` per item. The check is the first indented line starting with `check:`; its command (one pair of backticks removed) runs in bash from the repository root and passes when it exits 0.
 - **`## Log`:** the lead adds one line `- <phase>: <evidence>` each time it moves the phase on.
 
-`/phase` opens a side pane that shows the cycle's phase, the running agent and the plan's finished items.
+`/phase` opens a side pane that shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written or resumed, `/phase` opens and closes it, and a pane you closed stays closed for that plan.
 
 ### Where 0.10 came from
 
@@ -319,7 +319,7 @@ The rules were rewritten in 0.10 too; the review-gate and rule-following numbers
 
 | | In every session |
 |---|---|
-| Rules, injected at session start | 445 words (`wc -w` of `rules.md`); roughly 600 tokens, an estimate, not counted with a tokenizer |
+| Rules, injected at session start | 450 words (`wc -w` of `rules.md`); roughly 600 tokens, an estimate, not counted with a tokenizer |
 | The role agents' descriptions and `visual-plan`'s description | not measured |
 | Other hooks (session check, review gate) | 0, until the gate blocks |
 | `setup`, `cycle`, `clean-worktrees`, `monthly-review` | 0 (user-only skills) |

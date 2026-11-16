@@ -14,6 +14,9 @@ const SPIN = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const NONE = 'No cycle running. Start one with /starter:cycle <work>'
 const SOLID = 2
 const BAR = 16
+const MAX_AGENTS = 20
+// The role that does each phase's work: the card shows only a running agent of that role.
+const ROLE: Record<string, string> = { gather: 'reader', plan: 'reader', 'plan-review': 'reviewer', build: 'writer', 'code-review': 'reviewer', probe: 'reviewer' }
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -34,12 +37,20 @@ const quiet = async (fn: () => Promise<unknown>) => {
 }
 const bg = (p: Promise<unknown>) => void p.catch(() => undefined)
 
-// Forward slashes, lower-case drive letter, no trailing slash: Windows hands paths in either form.
-const normal = (path: string) => path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, d => d.toLowerCase()).replace(/\/+$/, '')
+// Forward slashes, `.` and `..` resolved, no trailing slash; a drive-letter path is lower-cased whole, as Windows compares it.
+const normal = (path: string) => {
+  const out: string[] = []
+  for (const [i, seg] of path.replace(/\\/g, '/').split('/').entries()) {
+    if (seg === '..') {
+      if (out.length > 1) out.pop()
+    } else if (seg !== '.' && (seg !== '' || i === 0)) out.push(seg)
+  }
+  const joined = out.join('/') || '/'
+  return /^[a-z]:/i.test(joined) ? joined.toLowerCase() : joined
+}
 const planFile = (root: string, path: string) => {
-  const file = normal(path)
-  const full = /^([a-z]:)?\//i.test(file) ? file : `${root}/${file}`
-  return full.startsWith(`${root}/docs/plans/`) && full.endsWith('.md') ? full : undefined
+  const file = normal(/^([A-Za-z]:)?[\\/]/.test(path) ? path : `${root}/${path}`)
+  return file.startsWith(`${root}/docs/plans/`) && file.endsWith('.md') ? file : undefined
 }
 
 // The plan file's contract (docs/plans): front matter, the `## Items` lines and the `## Log` lines. Undefined: not a cycle plan.
@@ -56,7 +67,14 @@ const parsePlan = (text: string): Plan | undefined => {
   if (!front.cycle || !(phase === 'done' || PHASES.some(p => p === phase))) return undefined
   const plan: Plan = { cycle: front.cycle, phase: phase as Plan['phase'], waiting: front.waiting === 'user', items: 0, ticked: 0, log: [] }
   let section = ''
+  let fenced = false
   for (const line of lines.slice(end + 1)) {
+    // A fenced block holds examples: its headings, items and log lines are not the plan's.
+    if (/^```/.test(line)) {
+      fenced = !fenced
+      continue
+    }
+    if (fenced) continue
     const head = /^## (.*?)\s*$/.exec(line)
     if (head) section = head[1]!.toLowerCase()
     else if (section === 'items') {
@@ -175,6 +193,30 @@ async function load($: EngineInterface, path: string) {
   }
 }
 
+// The plan to show: the one stored for this root if it parses and is not done, else the first open cycle plan in docs/plans.
+async function find($: EngineInterface, root: string): Promise<Cycle | undefined> {
+  const key = `plan:${root}`
+  const stored = await $.store.get(key)
+  if (typeof stored === 'string') {
+    const plan = await load($, stored)
+    // Only a plan that parses as done is forgotten: an unreadable file may be on another branch or locked.
+    if (plan?.phase === 'done') await $.store.delete(key)
+    else if (plan) return { path: stored, plan }
+  }
+  const dir = `${root}/docs/plans`
+  let names: string[]
+  try {
+    names = (await $.fs.list(dir)).filter(f => f.kind === 'file' && f.name.endsWith('.md')).map(f => f.name).sort().slice(0, 50)
+  } catch {
+    return undefined
+  }
+  for (const name of names) {
+    const plan = await load($, `${dir}/${name}`)
+    if (plan && plan.phase !== 'done') return { path: `${dir}/${name}`, plan }
+  }
+  return undefined
+}
+
 // Re-reads the open plan; a failed read or a file that no longer parses leaves the last good state.
 async function refresh($: EngineInterface) {
   await quiet(async () => {
@@ -184,13 +226,23 @@ async function refresh($: EngineInterface) {
   })
 }
 
-async function openPane($: EngineInterface) {
-  await $.store.set('open', true)
+// With no cycle loaded, look for one; with one, read it again.
+async function reload($: EngineInterface) {
+  await quiet(async () => {
+    if (await read($, cycleAtom)) return refresh($)
+    const found = await find($, await rootOf($))
+    if (found) await update($, cycleAtom, () => found)
+  })
+}
+
+async function openPane($: EngineInterface, root: string) {
+  await $.store.set(`open:${root}`, true)
   await $.ui.open({ id: PANE, title: 'Phase' })
   await sync($)
 }
 
-// A plan file was just edited: show it, remember it for this root and open the pane, unless it is a finished cycle that is not the open one.
+// A plan file was just edited: show it and remember it for this root, unless it is a finished cycle that is not the open one.
+// Only a plan that becomes the open cycle opens the pane by itself: later edits never reopen a pane the person closed.
 async function adopt($: EngineInterface, root: string, path: string) {
   const plan = await load($, path)
   if (!plan) return
@@ -199,7 +251,7 @@ async function adopt($: EngineInterface, root: string, path: string) {
   await update($, cycleAtom, (): Cycle => ({ path, plan }))
   if (plan.phase === 'done') return
   await $.store.set(`plan:${root}`, path)
-  if (!(await isOpen($))) await openPane($)
+  if (open?.path !== path && !(await isOpen($))) await openPane($, root)
 }
 
 export const register: Register = on => {
@@ -207,16 +259,16 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'phase', description: 'Show the open cycle: phase, running agent and finished phases' })
     await quiet(async () => {
-      const key = `plan:${await rootOf($)}`
-      const path = await $.store.get(key)
-      const plan = typeof path === 'string' ? await load($, path) : undefined
-      if (typeof path === 'string' && plan && plan.phase !== 'done') {
-        await update($, cycleAtom, (): Cycle => ({ path, plan }))
-      } else {
-        if (path !== undefined) await $.store.delete(key)
-        await update($, cycleAtom, () => null)
+      const root = await rootOf($)
+      const found = await find($, root)
+      await update($, cycleAtom, (): Cycle | null => found ?? null)
+      // The pane's old global flag opened it in every project: it is read once, handed to this root and removed.
+      const legacy = await $.store.get('open')
+      if (legacy !== undefined) {
+        await $.store.delete('open')
+        if (legacy && found) await $.store.set(`open:${root}`, true)
       }
-      if (await $.store.get('open')) void $.ui.open({ id: PANE, title: 'Phase' }).then(() => sync($)).catch(() => undefined)
+      if (found && (await $.store.get(`open:${root}`))) void $.ui.open({ id: PANE, title: 'Phase' }).then(() => sync($)).catch(() => undefined)
     })
 
     return next(e)
@@ -225,14 +277,15 @@ export const register: Register = on => {
   on('command.run', { command: 'phase' }, async $ => {
     let text = 'Phase pane opened.'
     await quiet(async () => {
+      const root = await rootOf($)
       if (await isOpen($)) {
         text = 'Phase pane closed.'
-        await $.store.delete('open')
+        await $.store.delete(`open:${root}`)
         await $.ui.close({ id: PANE })
         await sync($)
       } else {
-        await refresh($)
-        await openPane($)
+        await reload($)
+        await openPane($, root)
       }
     })
 
@@ -240,7 +293,7 @@ export const register: Register = on => {
   })
 
   on('ui.close', { id: PANE }, async ($, e, next) => {
-    if (e.origin.kind === 'person') await quiet(() => $.store.delete('open'))
+    if (e.origin.kind === 'person') await quiet(async () => $.store.delete(`open:${await rootOf($)}`))
     const closed = await next(e)
     await quiet(() => sync($))
 
@@ -264,7 +317,7 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
-    if (!e.agentId) await refresh($)
+    if (!e.agentId) await reload($)
 
     return next(e)
   })
@@ -274,11 +327,11 @@ export const register: Register = on => {
     efforts.delete(e.tool_use_id)
     const startedAt = await $.clock.now()
     const resumed = e.resume?.agentId
-    // tool_use_id is shared by a workflow run's agents, so each spawn gets its own key.
+    // A new spawn has no agent id yet, so it gets a key of its own.
     const id = resumed ?? `${startedAt}-${++spawns}`
     const without = (list: Agent[]) => list.filter(a => a.id !== id)
     const row: Agent = { id, agentId: resumed, role: e.subagentType.replace(/^starter:/, ''), model: e.model ?? '…', effort, startedAt }
-    await quiet(() => update($, agentsAtom, list => [...without(list), row]))
+    await quiet(() => update($, agentsAtom, list => [...without(list), row].slice(-MAX_AGENTS)))
 
     try {
       await quiet(() => sync($))
@@ -414,7 +467,7 @@ export const register: Register = on => {
           </Box>
         </Box>
       )
-      const agent = agents[agents.length - 1]
+      const agent = [...agents].reverse().find(a => a.role === ROLE[plan.phase])
       const live = agent && !done && !plan.waiting
       const title = (done ? 'Done' : words(plan.phase)).replace(/^./, c => c.toUpperCase())
       const counts = `${plan.ticked}/${plan.items}`

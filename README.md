@@ -43,7 +43,7 @@ Two things work in every session, with no cycle started:
 | Review gate | The `Stop` hook above |
 | `/starter:cycle` | `/starter:cycle <work>` starts a cycle and writes its plan file; with no argument it resumes the open one; `off` stops it |
 | Role agents | `reader` (Sonnet, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, medium) checks a plan or a change with a fresh context. Each role fixes its model and effort |
-| `/phase` | Opens a side pane: `/phase` shows the cycle's phase, the running agent and the plan's finished items |
+| `/phase` | Opens a side pane: `/phase` shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written or resumed, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | `visual-plan` | Writes a plan in the plan-file format first; an optional visual page of it shows diagrams, the API contract, the data model, items with their checks and open questions |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
 | `/starter:review-setup` | Reads your repo and drafts a short `REVIEW.md`: what failure looks like here, what is risky, what to skip |
