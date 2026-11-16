@@ -343,6 +343,7 @@ The rules were rewritten in 0.10 too; the review-gate and rule-following numbers
 - **Gate cost on big repos.** Each check runs `git add -A` into a private index and object store, skipping untracked files over 2MB, so many untracked files or Git LFS clean filters still slow it down. Turn it off with `/starter:setup` or the env setting above.
 - **A plan is only as good as its checks.** The plan review looks at whether each check can run and tests its item; it cannot know that a passing check means the work is right.
 - **A user-only skill's text and a compaction.** Whether `/starter:cycle`'s text survives a context compaction is unverified. Resuming with `/starter:cycle` and re-reading the plan file at every phase are the guard.
+- **The gate does not see a review that continues.** It counts a review when the `reviewer` is started or `code-review` is called. A second review round sent to the same reviewer (continuing that agent, as the cycle does) is not seen, so the gate may ask once more; Claude answers in one line that the review is running.
 - **Removed skills.** `/starter:fan-out` and `/starter:diff-walkthrough` are gone in 0.10 for anyone who used them.
 
 ## Keep it sharp: the monthly review

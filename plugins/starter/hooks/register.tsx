@@ -15,8 +15,16 @@ const NONE = 'No cycle running. Start one with /starter:cycle <work>'
 const SOLID = 2
 const BAR = 16
 const MAX_AGENTS = 20
-// The role that does each phase's work: the card shows only a running agent of that role.
-const ROLE: Record<string, string> = { gather: 'reader', plan: 'reader', 'plan-review': 'reviewer', build: 'writer', 'code-review': 'reviewer', probe: 'reviewer' }
+// The roles that do each phase's work: the card shows only a running agent of one of them.
+const ROLES: Record<string, string[]> = {
+  gather: ['reader'],
+  plan: ['reader'],
+  'plan-review': ['reviewer'],
+  build: ['writer'],
+  // The writer that fixes the findings runs in this phase too.
+  'code-review': ['reviewer', 'writer'],
+  probe: ['reviewer'],
+}
 
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -37,15 +45,17 @@ const quiet = async (fn: () => Promise<unknown>) => {
 }
 const bg = (p: Promise<unknown>) => void p.catch(() => undefined)
 
-// Forward slashes, `.` and `..` resolved, no trailing slash; a drive-letter path is lower-cased whole, as Windows compares it.
+// Forward slashes, `.` and `..` resolved, no trailing slash, the leading `//` of a network path kept; a drive-letter path is lower-cased whole, as Windows compares it.
 const normal = (path: string) => {
+  const slashed = path.replace(/\\/g, '/')
   const out: string[] = []
-  for (const [i, seg] of path.replace(/\\/g, '/').split('/').entries()) {
+  for (const [i, seg] of slashed.split('/').entries()) {
     if (seg === '..') {
       if (out.length > 1) out.pop()
     } else if (seg !== '.' && (seg !== '' || i === 0)) out.push(seg)
   }
   const joined = out.join('/') || '/'
+  if (/^\/\/[^/]/.test(slashed)) return `/${joined}`
   return /^[a-z]:/i.test(joined) ? joined.toLowerCase() : joined
 }
 const planFile = (root: string, path: string) => {
@@ -67,14 +77,16 @@ const parsePlan = (text: string): Plan | undefined => {
   if (!front.cycle || !(phase === 'done' || PHASES.some(p => p === phase))) return undefined
   const plan: Plan = { cycle: front.cycle, phase: phase as Plan['phase'], waiting: front.waiting === 'user', items: 0, ticked: 0, log: [] }
   let section = ''
-  let fenced = false
+  let fence: string | undefined
   for (const line of lines.slice(end + 1)) {
-    // A fenced block holds examples: its headings, items and log lines are not the plan's.
-    if (/^```/.test(line)) {
-      fenced = !fenced
+    // A fenced block holds examples: its headings, items and log lines are not the plan's. A fence opens with three or
+    // more backticks or tildes and closes on a line that starts with at least as many of the same character.
+    const run = /^(`{3,}|~{3,})/.exec(line)?.[1]
+    if (fence ? run && run[0] === fence[0] && run.length >= fence.length : run) {
+      fence = fence ? undefined : run
       continue
     }
-    if (fenced) continue
+    if (fence) continue
     const head = /^## (.*?)\s*$/.exec(line)
     if (head) section = head[1]!.toLowerCase()
     else if (section === 'items') {
@@ -193,19 +205,26 @@ async function load($: EngineInterface, path: string) {
   }
 }
 
-// The plan to show: the one stored for this root if it parses and is not done, else the first open cycle plan in docs/plans.
-async function find($: EngineInterface, root: string): Promise<Cycle | undefined> {
+// The plan stored for this root, if its file parses and is not done. Only a plan that parses as done is forgotten:
+// an unreadable file may be on another branch or locked.
+async function stored($: EngineInterface, root: string): Promise<Cycle | undefined> {
   const key = `plan:${root}`
-  const stored = await $.store.get(key)
-  if (typeof stored === 'string') {
-    const plan = await load($, stored)
-    // Only a plan that parses as done is forgotten: an unreadable file may be on another branch or locked.
-    if (plan?.phase === 'done') await $.store.delete(key)
-    else if (plan) return { path: stored, plan }
-  }
+  const path = await $.store.get(key)
+  if (typeof path !== 'string') return undefined
+  const plan = await load($, path)
+  if (plan?.phase === 'done') await $.store.delete(key)
+  else if (plan) return { path, plan }
+  return undefined
+}
+
+// The plan to show: the stored one, else the first open cycle plan in docs/plans.
+async function find($: EngineInterface, root: string): Promise<Cycle | undefined> {
+  const kept = await stored($, root)
+  if (kept) return kept
   const dir = `${root}/docs/plans`
   let names: string[]
   try {
+    // shortcut: the listing reads the first 50 files by name, so a cycle plan sorting after the 50th is not found, upgrade when plan folders grow past 50 files.
     names = (await $.fs.list(dir)).filter(f => f.kind === 'file' && f.name.endsWith('.md')).map(f => f.name).sort().slice(0, 50)
   } catch {
     return undefined
@@ -226,11 +245,12 @@ async function refresh($: EngineInterface) {
   })
 }
 
-// With no cycle loaded, look for one; with one, read it again.
-async function reload($: EngineInterface) {
+// With a cycle loaded, read it again; with none, look for one: in the store alone, or (`full`) in docs/plans too.
+async function reload($: EngineInterface, full: boolean) {
   await quiet(async () => {
     if (await read($, cycleAtom)) return refresh($)
-    const found = await find($, await rootOf($))
+    const root = await rootOf($)
+    const found = await (full ? find($, root) : stored($, root))
     if (found) await update($, cycleAtom, () => found)
   })
 }
@@ -284,7 +304,7 @@ export const register: Register = on => {
         await $.ui.close({ id: PANE })
         await sync($)
       } else {
-        await reload($)
+        await reload($, true)
         await openPane($, root)
       }
     })
@@ -304,7 +324,8 @@ export const register: Register = on => {
     if (e.tool === 'Agent' && e.effort) remember(efforts, e.tool_use_id, e.effort)
     if (e.agentId) bg(note($, e.agentId, String(e.tool), targetOf(e)))
     const ran = await next(e)
-    const edited = EDITS.has(String(e.tool)) ? field(e, 'file_path') : undefined
+    // A Read counts too: a resumed cycle's lead reads the plan before it edits it.
+    const edited = EDITS.has(String(e.tool)) || e.tool === 'Read' ? field(e, 'file_path') : undefined
     if (edited) {
       await quiet(async () => {
         const root = await rootOf($)
@@ -317,7 +338,7 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
-    if (!e.agentId) await reload($)
+    if (!e.agentId) await reload($, false)
 
     return next(e)
   })
@@ -467,7 +488,7 @@ export const register: Register = on => {
           </Box>
         </Box>
       )
-      const agent = [...agents].reverse().find(a => a.role === ROLE[plan.phase])
+      const agent = [...agents].reverse().find(a => ROLES[plan.phase]?.includes(a.role))
       const live = agent && !done && !plan.waiting
       const title = (done ? 'Done' : words(plan.phase)).replace(/^./, c => c.toUpperCase())
       const counts = `${plan.ticked}/${plan.items}`

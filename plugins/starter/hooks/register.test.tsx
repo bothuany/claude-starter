@@ -446,7 +446,6 @@ test('an Edit, Write or MultiEdit that leaves a cycle plan under docs/plans open
   w.files.set('c:/work/proj/docs/other.md', planText())
   w.files.set('c:/work/proj/docs/plans/plan.txt', planText())
   for (const file of ['docs/plans/notes.md', 'docs/plans/old.md', 'docs/other.md', 'docs/plans/plan.txt']) await $.tool.call(edit(win(file)))
-  await $.tool.call({ tool: 'Read', file_path: PLAN_EDIT })
   expect(w.panes).toEqual([])
   expect(w.store.get(KEY)).toBeUndefined()
 
@@ -651,7 +650,7 @@ test('no drawn text starts or ends with whitespace or holds two spaces in a row,
 })
 
 // Review fix 1: a plan edited by a path in another valid form.
-test('a plan path as ./relative, in another letter case or with .. is recognised, and one outside the root is ignored', async ($, on) => {
+test('a plan path as ./relative, in another letter case, with .. or on a network share is recognised, and one outside the root is ignored', async ($, on) => {
   const w = world(on)
   w.files.clear()
   await start($, w.time)
@@ -676,6 +675,20 @@ test('a plan path as ./relative, in another letter case or with .. is recognised
     expect(w.store.get(KEY)).toBe(`c:/work/proj/docs/plans/${name}.md`)
     expect((await texts($))[0]).toBe(name)
   }
+
+  // A network share keeps its leading //, which Windows reads from the current drive without it.
+  const unc = ['', '', 'server', 'share', 'proj'].join(String.fromCharCode(92))
+  w.where.root = unc
+  w.files.clear()
+  w.files.set('//server/share/proj/docs/plans/u.md', planText({ cycle: 'u' }))
+  w.files.set('//server/share/proj/docs/plans/v.md', planText({ cycle: 'v' }))
+  w.panes.length = 0
+  await start($, w.time)
+  expect((await texts($))[0]).toBe('u')
+  await $.tool.call(edit(win('docs/plans/v.md', unc)))
+  expect(w.panes).toEqual(['phase'])
+  expect(w.store.get('plan://server/share/proj')).toBe('//server/share/proj/docs/plans/v.md')
+  expect((await texts($))[0]).toBe('v')
 })
 
 // Review fix 2: finding a cycle that no edit of this session has touched.
@@ -728,16 +741,41 @@ test('with no cycle loaded, /phase looks for one', async ($, on) => {
 
 })
 
-test('with no cycle loaded, the start of a main-session turn looks for one', async ($, on) => {
+test('at the start of a main-session turn with no cycle loaded only the stored key is looked up, never the folder', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  for (let i = 0; i < 60; i++) w.files.set(`${PLANS}/n${String(i).padStart(2, '0')}.md`, '# notes\n')
+  await start($, w.time)
+  w.reads.length = 0
+
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  expect(w.reads).toEqual([])
+  expect(await texts($)).toEqual([NONE])
+
+  w.files.set(`${PLANS}/c.md`, planText({ cycle: 'cee' }))
+  await $.turn.start({ text: 'go', turnId: 't3', agentId: 'a1' })
+  expect(await texts($)).toEqual([NONE])
+  w.store.set(KEY, `${PLANS}/c.md`)
+  await $.turn.start({ text: 'go', turnId: 't4' })
+  expect(w.reads).toEqual([`${PLANS}/c.md`])
+  expect((await texts($))[0]).toBe('cee')
+})
+
+test('a Read of a plan file under docs/plans adopts it as an edit does, so a resumed cycle shows up', async ($, on) => {
   const w = world(on)
   w.files.clear()
   await start($, w.time)
-  w.files.set(`${PLANS}/c.md`, planText({ cycle: 'cee' }))
+  w.files.set(`${PLANS}/notes.md`, '# notes\n')
+  await $.tool.call({ tool: 'Read', file_path: win('docs/plans/notes.md') })
+  await $.tool.call({ tool: 'Read', file_path: win('docs/other.md') })
+  expect(w.panes).toEqual([])
 
-  await $.turn.start({ text: 'go', turnId: 't1', agentId: 'a1' })
-  expect(await texts($)).toEqual([NONE])
-  await $.turn.start({ text: 'go', turnId: 't2' })
-  expect((await texts($))[0]).toBe('cee')
+  w.files.set(PLAN, planText())
+  await $.tool.call({ tool: 'Read', file_path: PLAN_EDIT })
+  expect(w.panes).toEqual(['phase'])
+  expect(w.store.get(KEY)).toBe(PLAN)
+  expect((await texts($))[0]).toBe('rate-limiter')
 })
 
 // Review fix 3: a fenced block holds examples.
@@ -754,8 +792,19 @@ test('headings, items and log lines inside a fenced block are not the plan', asy
   expect(lines.filter(l => l.startsWith(' ✓'))).toEqual([' ✓ gather  3 decisions'])
 })
 
+test('a fence closes only on a run of the same character at least as long as the one that opened it', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN })
+  const long = '`'.repeat(4)
+  const short = '`'.repeat(3)
+  const items = ['- [ ] 1. a', '- [ ] 2. b', `${long}md`, short, '- [ ] 3. inside', short, '- [ ] 4. inside', long, '~~~', short, '- [x] 5. inside', '~~~']
+  w.files.set(PLAN, planText({ phase: 'plan-review' }, items))
+  await start($, w.time)
+
+  expect((await content($)).find(l => l.includes('checks'))).toBe(' ▍ checks ░░░░░░░░░░░░░░░░ 0/2')
+})
+
 // Review fix 4: the card shows an agent of the phase's role only.
-test('the card shows the newest running agent of the phase role, and none when there is none', async ($, on) => {
+test('the card shows the newest running agent of the phase roles (code-review has two), and none when there is none', async ($, on) => {
   const w = world(on, { [KEY]: PLAN })
   let n = 0
   on('agent.spawn', (_, e) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: `a${++n}` }))
@@ -766,13 +815,19 @@ test('the card shows the newest running agent of the phase role, and none when t
   await $.agent.spawn(spawn('u2', 'Explore', 'haiku'))
   expect((await card())[1]).toBe(' ▍ writer · Sonnet 5.5')
 
-  // The phase moves on while the writer still runs: a writer is not the code reviewer.
-  w.files.set(PLAN, planText({ phase: 'code-review' }))
+  // The phase moves to probe while the writer still runs: a writer is not the probe's agent.
+  w.files.set(PLAN, planText({ phase: 'probe' }))
   await $.turn.start({ text: 'go', turnId: 't1' })
-  expect(await card()).toEqual([' ▍ Code review'])
+  expect(await card()).toEqual([' ▍ Probe'])
 
+  // In code-review the writer that fixes the findings counts too, and the newest of the two shows.
+  w.files.set(PLAN, planText({ phase: 'code-review' }))
+  await $.turn.start({ text: 'go', turnId: 't2' })
+  expect((await card())[1]).toBe(' ▍ writer · Sonnet 5.5')
   await $.agent.spawn(spawn('u3', 'starter:reviewer', 'opus'))
   expect((await card())[1]).toBe(' ▍ reviewer · Opus')
+  await $.agent.spawn(spawn('u4', 'starter:writer'))
+  expect((await card())[1]).toBe(' ▍ writer · Sonnet 5.5')
 })
 
 test('at most 20 running agents are tracked, the oldest dropped first', async ($, on) => {
