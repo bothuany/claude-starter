@@ -1,11 +1,23 @@
-// What fills the main session's context? Reads local transcripts, prints aggregates only (no content).
+// What fills the main session's context? Reads local transcripts under the Claude config dir (projects/*/*.jsonl),
+// prints aggregates only (no content).
+//
+//   node ctx.mjs --since <date> [--cut <date>]    sessions that started on or after --since; --cut adds a before/after split
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-const root = join(homedir(), '.claude', 'projects')
-const SINCE = Date.parse('2026-10-20')
-const CUT = Date.parse('2026-11-12') // 0.9.0: "the lead delegates all code"
+const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects')
+const dateArg = name => {
+  const i = process.argv.indexOf(name)
+  return i > 1 ? process.argv[i + 1] : undefined
+}
+const sinceArg = dateArg('--since'), cutArg = dateArg('--cut')
+const SINCE = Date.parse(sinceArg ?? '')
+const CUT = cutArg === undefined ? undefined : Date.parse(cutArg)
+if (Number.isNaN(SINCE) || Number.isNaN(CUT)) {
+  console.error('usage: node ctx.mjs --since <date, e.g. 2026-11-01> [--cut <date>]')
+  process.exit(1)
+}
 const CAT = name =>
   /^(Read|Grep|Glob|NotebookRead)$/.test(name) ? 'read'
   : /^(Bash|PowerShell)$/.test(name) ? 'shell'
@@ -99,10 +111,14 @@ function report(name, list) {
 }
 
 report('ALL', sessions)
-report('before 0.9.0 (to Nov 11)', sessions.filter(s => s.first < CUT))
-report('since 0.9.0 (Nov 12 on)', sessions.filter(s => s.first >= CUT))
-report('since 0.9.0, sessions using starter roles', sessions.filter(s => s.first >= CUT && s.starter))
-report('since 0.9.0, sessions without starter roles', sessions.filter(s => s.first >= CUT && !s.starter))
+if (CUT !== undefined) {
+  report(`before ${cutArg}`, sessions.filter(s => s.first < CUT))
+  report(`from ${cutArg}`, sessions.filter(s => s.first >= CUT))
+}
+const scope = CUT === undefined ? sessions : sessions.filter(s => s.first >= CUT)
+const scopeName = CUT === undefined ? 'all sessions' : `from ${cutArg}`
+report(`${scopeName}, sessions using starter roles`, scope.filter(s => s.starter))
+report(`${scopeName}, sessions without starter roles`, scope.filter(s => !s.starter))
 report('Fable-led', sessions.filter(s => /fable/.test(s.model)))
 report('peak over 200k', sessions.filter(s => s.peak > 2e5))
 

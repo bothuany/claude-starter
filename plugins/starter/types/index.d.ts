@@ -28,7 +28,7 @@ export type Row = {
 export type Feed = {
   events: string[]
   tokens: number
-  lead: { model?: string; tool?: string; target?: string; edits?: { files: number; lines: number } }
+  lead: { model?: string; tool?: string; target?: string }
 }
 
 export type Mode = 'compact' | 'extended'

@@ -1,8 +1,8 @@
 ---
 name: reader
-description: Reads code or docs and reports what they do, changing no files. Use to trace a flow, extract a contract or spec, summarise behaviour, or compare two implementations. Not for find-and-list ("where is X", "which files use X"); use locator. Not for judging a change or a diff; use reviewer. Not for editing anything; use writer.
+description: Reads code or docs and reports what they do, changing no files. Use to find where something is defined, trace a flow, extract a contract or spec, summarise behaviour, or compare two implementations. Not for judging a change or a diff; use reviewer. Not for editing anything; use writer.
 disallowedTools: Edit, Write, MultiEdit, NotebookEdit
-model: opus
+model: sonnet
 effort: medium
 ---
 

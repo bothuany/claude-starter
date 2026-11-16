@@ -1,12 +1,24 @@
 // Subagent economics from local transcripts: what delegated steps cost in their own context versus what the same
-// number of steps would have re-read in the main context at the moment of the spawn. Aggregates only.
+// number of steps would have re-read in the main context at the moment of the spawn. Reads the transcripts under the
+// Claude config dir (projects/*/*.jsonl and their subagents/ folders). Aggregates only.
+//
+//   node sub.mjs --since <date> [--cut <date>]    sessions that started on or after --since; --cut adds a before/after split
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-const root = join(homedir(), '.claude', 'projects')
-const SINCE = Date.parse('2026-10-20')
-const CUT = Date.parse('2026-11-12')
+const root = join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects')
+const dateArg = name => {
+  const i = process.argv.indexOf(name)
+  return i > 1 ? process.argv[i + 1] : undefined
+}
+const sinceArg = dateArg('--since'), cutArg = dateArg('--cut')
+const SINCE = Date.parse(sinceArg ?? '')
+const CUT = cutArg === undefined ? undefined : Date.parse(cutArg)
+if (Number.isNaN(SINCE) || Number.isNaN(CUT)) {
+  console.error('usage: node sub.mjs --since <date, e.g. 2026-11-01> [--cut <date>]')
+  process.exit(1)
+}
 const k = n => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : `${Math.round(n / 1e3)}k`)
 const q = (xs, p) => { const s = [...xs].sort((a, b) => a - b); return s.length ? s[Math.min(s.length - 1, Math.floor(p * s.length))] : 0 }
 const ctxOf = u => (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0)
@@ -88,13 +100,13 @@ function economics(name, list) {
   console.log(`subagents re-read in their own contexts: ${k(own)} over ${steps} steps (avg ${k(own / steps)} per step)`)
   console.log(`the same step count at the main context of each spawn: ${k(inline)} (${(inline / own).toFixed(1)}x)`)
   console.log(`main-session re-read volume in these sessions: ${k(mainTot)}; subagents are ${Math.round((100 * own) / (own + mainTot))}% of the total`)
-  const cheap = spawnCtx.map((c, i) => perAgentSteps[i] * c < 0).length // placeholder to keep arrays aligned
-  const worse = spawnCtx.filter((c, i) => c * perAgentSteps[i] < 0).length
-  void cheap; void worse
 }
-economics('all sessions with subagents', sessions.filter(s => existsSync(join(s.dir, 'subagents'))))
-economics('before 0.9.0', sessions.filter(s => s.first < CUT && existsSync(join(s.dir, 'subagents'))))
-economics('since 0.9.0', sessions.filter(s => s.first >= CUT && existsSync(join(s.dir, 'subagents'))))
+const withAgents = sessions.filter(s => existsSync(join(s.dir, 'subagents')))
+economics('all sessions with subagents', withAgents)
+if (CUT !== undefined) {
+  economics(`before ${cutArg}`, withAgents.filter(s => s.first < CUT))
+  economics(`from ${cutArg}`, withAgents.filter(s => s.first >= CUT))
+}
 
 // Per subagent: did its own re-read volume come in under the inline estimate?
 let under = 0, over = 0

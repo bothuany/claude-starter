@@ -163,107 +163,6 @@ let leadModel: string | undefined
 // through until the pane has been opened in this session.
 let active = false
 
-const BUDGET = { files: 3, lines: 60 }
-const NOT_CODE = /\.(md|mdx|txt|rst)$/i
-const OFF = /^(off|0|false|no)$/i
-// Machine-made follow-ups of the request already running; every other submission is a new request.
-const CONTINUES = new Set(['task-notification', 'auto-continuation'])
-const NOTICE = 'claude-starter: lead edit budget reached (3 files / 60 lines); the rest goes to a writer'
-let envOff = false
-let solo = false
-const SOLO_ON = "Solo mode on: work in this session yourself; don't delegate to subagents unless asked. The lead edit budget is off."
-const SOLO_OFF = 'Solo mode off: delegate by role again (locator, reader, writer, reviewer); the lead edit budget applies.'
-let root: string | undefined
-// `files` counts, per file, the edits holding it: ones that ran and ones still in flight.
-const blank = () => ({ files: new Map<string, number>(), lines: 0, told: false })
-let used = blank()
-
-const sizeOf = (text: unknown) => (typeof text === 'string' && text ? text.replace(/\n$/, '').split('\n').length : 0)
-const changedLines = (tool: string, input: Record<string, unknown>) => {
-  if (tool === 'Write') return sizeOf(input.content)
-  if (tool === 'NotebookEdit') return sizeOf(input.new_source)
-  const one = (x: Record<string, unknown>) => Math.max(sizeOf(x.old_string), sizeOf(x.new_string))
-  return tool === 'MultiEdit' && Array.isArray(input.edits) ? input.edits.reduce((n, x) => n + one(x), 0) : one(input)
-}
-// Forward slashes, a lower-case drive letter, `.` and `..` resolved; a relative path is joined to the root.
-const normal = (path: string) => {
-  const slashed = path.replace(/\\/g, '/').replace(/^([a-z]):/i, (_, d: string) => `${d.toLowerCase()}:`)
-  const full = root && !/^(\/|[a-z]:\/)/.test(slashed) ? `${root}/${slashed}` : slashed
-  const parts: string[] = []
-  for (const part of full.split('/')) {
-    if (part === '..') {
-      if (parts.length > 1) parts.pop()
-    } else if (part !== '.' && (part !== '' || parts.length === 0)) parts.push(part)
-  }
-  return parts.join('/')
-}
-const codeFile = (file: unknown) => {
-  if (typeof file !== 'string' || !file || NOT_CODE.test(file)) return undefined
-  const path = normal(file)
-  return !root || path === root || path.startsWith(`${root}/`) ? path : undefined
-}
-
-type Spend = { deny: string } | { deny?: undefined; file: string; lines: number }
-// The first counted edit of a request always passes; any error lets the edit through uncounted.
-function check(e: object & { tool: string }): Spend | undefined {
-  try {
-    const input = e as Record<string, unknown>
-    const file = codeFile(input.file_path ?? input.notebook_path)
-    if (!file) return undefined
-    const lines = changedLines(e.tool, input)
-    const files = used.files.size + (used.files.has(file) ? 0 : 1)
-    const total = used.lines + lines
-    if (used.files.size > 0 && (files > BUDGET.files || total > BUDGET.lines)) {
-      return {
-        deny: `claude-starter: the lead's edit budget for this request is used up (${files} files, ${total} lines of ${BUDGET.files} / ${BUDGET.lines}). Write a brief and send the rest to the \`writer\` subagent; you already hold the context. Don't use shell edits to get around this.`,
-      }
-    }
-    return { file, lines }
-  } catch {
-    return undefined
-  }
-}
-
-function tell($: EngineInterface) {
-  if (used.told) return
-  used.told = true
-  try {
-    $.ui.toast(NOTICE)
-  } catch {
-    // A notice that cannot be shown must not change the tool result.
-  }
-}
-
-const showEdits = ($: EngineInterface) => {
-  const edits = used.files.size ? { files: used.files.size, lines: used.lines } : undefined
-  if (active) bg(update($, feed, f => ({ ...f, lead: { ...f.lead, edits } })))
-}
-
-// rules-hook.mjs is a command hook and cannot read $.store, and the types give a mod no CLAUDE_PLUGIN_DATA, so the
-// flag goes where both sides can find it: the config dir (CLAUDE_CONFIG_DIR, else ~/.claude), as rules-block.mjs reads it.
-async function writeSolo($: EngineInterface) {
-  // USERPROFILE first, as node's os.homedir() reads it on Windows; it is unset elsewhere.
-  const home = (await $.env.get('USERPROFILE')) || (await $.env.get('HOME'))
-  const dir = (await $.env.get('CLAUDE_CONFIG_DIR')) || (home && `${home}/.claude`)
-  if (!dir) throw new Error('no config dir')
-  await $.fs.write(`${dir}/claude-starter/solo`, solo ? 'on' : 'off')
-}
-
-// Called with -1 to release a reservation; `held` is the request's count it was taken from, even after a reset.
-function hold(held: typeof used, spend: { file: string; lines: number }, sign: 1 | -1) {
-  const n = (held.files.get(spend.file) ?? 0) + sign
-  if (n > 0) held.files.set(spend.file, n)
-  else held.files.delete(spend.file)
-  held.lines += sign * spend.lines
-}
-
-const readRoot = async ($: EngineInterface) => {
-  root = normal(await $.session.root().catch(() => '')) || undefined
-}
-const readSolo = async ($: EngineInterface) => {
-  solo = (await $.store.get('solo').catch(() => undefined)) === true
-}
-
 async function pinOf($: EngineInterface, type: string) {
   if (!type.startsWith('starter:')) return {}
   let found = pins
@@ -315,11 +214,6 @@ export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'subagents', description: 'Show the subagents pane', argumentHint: '[compact|extended]' })
-    used = blank()
-    await $.command.register({ name: 'solo', description: 'Run everything in this session, without delegation or the edit budget', argumentHint: '[on|off]' })
-    envOff = OFF.test((await $.env.get('CLAUDE_STARTER_LEAD_BUDGET').catch(() => undefined)) ?? '')
-    await readSolo($)
-    await readRoot($)
     const stored = await $.store.get('mode')
     if (stored === 'compact' || stored === 'extended') await update($, modeAtom, () => stored)
     if (await $.store.get('open')) {
@@ -343,34 +237,6 @@ export const register: Register = on => {
     return { text: mode ? `Subagents pane opened in ${mode} mode.` : 'Subagents pane opened.' }
   })
 
-  // A plugin's command output stays in the model's requests (CommandRunResult.isTextDisplayOnly), so the reply reaches the model too.
-  on('command.run', { command: 'solo' }, async ($, e) => {
-    const arg = e.args.trim()
-    if (arg && arg !== 'on' && arg !== 'off') return { text: `Unknown option "${arg}": use /solo on, /solo off or /solo.` }
-    if (!arg) return { text: `Solo mode is ${solo ? 'on' : 'off'}.` }
-    solo = arg === 'on'
-    await $.store.set('solo', solo)
-    const saved = await writeSolo($).then(
-      () => true,
-      () => false,
-    )
-    $.ui.invalidate('ui.render')
-    const unsaved = saved ? '' : ' (The flag file could not be written, so the next session still starts with the previous rules.)'
-
-    return { text: `${solo ? SOLO_ON : SOLO_OFF}${unsaved}` }
-  })
-
-  on('prompt.submit', ($, e, next) => {
-    if (!e.isMeta && !CONTINUES.has(e.origin?.kind)) {
-      used = blank()
-      showEdits($)
-      bg(readRoot($))
-      bg(readSolo($))
-    }
-
-    return next(e)
-  })
-
   on('ui.close', { id: PANE }, async ($, e, next) => {
     if (e.origin.kind === 'person') await $.store.delete('open')
     const closed = await next(e)
@@ -380,30 +246,10 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
-    const spend = !envOff && !solo && !e.agentId && EDITS.has(e.tool) ? check(e) : undefined
-    if (spend?.deny !== undefined) {
-      tell($)
-      return { deny: spend.deny }
-    }
     if (e.tool === 'Agent' && e.effort) remember(efforts, e.tool_use_id, e.effort)
     if (active) bg(note($, e.agentId, String(e.tool), targetOf(e)))
-    if (!spend) return next(e)
-    // Reserved now, so parallel edits see each other; released unless the edit ran (a refused permission prompt or a
-    // failed write comes back as a deny or an error).
-    const held = used
-    hold(held, spend, 1)
-    showEdits($)
-    const ran = await next(e).catch((error: unknown) => {
-      hold(held, spend, -1)
-      showEdits($)
-      throw error
-    })
-    if (ran.deny !== undefined || ran.isError) {
-      hold(held, spend, -1)
-      showEdits($)
-    }
 
-    return ran
+    return next(e)
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -537,7 +383,6 @@ export const register: Register = on => {
       <Box justifyContent="space-between" gap={2}>
         <Box flexShrink={0} gap={2}>
           <Text weight="bold">SUBAGENTS</Text>
-          {solo ? <Text dimColor>solo</Text> : undefined}
         </Box>
         <Box flexShrink={0} gap={2}>
           <Text dimColor tabular>{`${running.length} running`}</Text>
@@ -608,9 +453,6 @@ export const register: Register = on => {
           {keep(<Text>{lead.tool}</Text>)}
           {lead.target ? grow(<Text dimColor wrap="truncate-end">{lead.target}</Text>) : undefined}
         </Box>
-      ) : undefined,
-      lead.edits ? (
-        <Text dimColor wrap="truncate-end">{`edits ${lead.edits.files} file${lead.edits.files === 1 ? '' : 's'} · ${lead.edits.lines}/${BUDGET.lines} lines`}</Text>
       ) : undefined,
     )
     const finishedLine = (r: Row) => {

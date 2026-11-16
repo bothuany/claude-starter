@@ -157,7 +157,7 @@ test('a renamed file counts once', () => {
   assert.equal(listed.dirtyFiles, 1)
 })
 
-test('branches merged locally but not pushed count as merged (fan-out cleanup)', () => {
+test('branches merged locally but not pushed count as merged', () => {
   const { root, repo, wt } = repoWithWorktree()
   // A remote whose main lags behind: origin/HEAD -> origin/main.
   const remote = join(root, 'remote.git')
@@ -227,45 +227,6 @@ test('the rules hook injects rules.md into the session, and nothing when the rul
   assert.equal(rulesHook(dir, env), null)
 })
 
-const SOLO_LINE =
-  "Solo mode is on: do the work yourself in this session; don't delegate to subagents unless the user asks. Where the rules below name the `reviewer` or `writer` subagent, do that step yourself: run the `code-review` skill directly and make the fixes in this session."
-const setSolo = (dir, text) => {
-  mkdirSync(join(dir, 'claude-starter'), { recursive: true })
-  writeFileSync(join(dir, 'claude-starter', 'solo'), text)
-}
-
-test('with solo on the rules hook leaves out the delegation section, adds the solo line and keeps the rest', () => {
-  const { dir, env } = configDir()
-  setSolo(dir, 'on\n')
-  const rules = rulesHook(dir, env).additionalContext
-  assert.doesNotMatch(rules, /Delegate to keep the main context clean|Orchestrate, don't queue/)
-  assert.ok(rules.includes(SOLO_LINE))
-  for (const section of ['**Ask before assuming.**', '**Check the docs, not your memory.**', '**Web research.**', '**Verify before you say done.**']) {
-    assert.ok(rules.includes(section), section)
-  }
-})
-
-test('a missing, off or garbage solo file injects the full rules', () => {
-  const { dir, env } = configDir()
-  const full = readFileSync(join(scripts, '..', 'rules.md'), 'utf8').replace(/\r\n/g, '\n').trim()
-  assert.equal(rulesHook(dir, env).additionalContext, full)
-  for (const text of ['off', 'garbage', '']) {
-    setSolo(dir, text)
-    assert.equal(rulesHook(dir, env).additionalContext, full)
-  }
-})
-
-test('the session notice names solo mode only while it is on', () => {
-  const { dir, env } = configDir()
-  const solo = /solo mode is on \(no delegation\): \/solo off to restore/
-  assert.doesNotMatch(run('session-check.mjs', [], dir, env).out, solo)
-  setSolo(dir, 'on')
-  assert.match(run('session-check.mjs', [], dir, env).out, solo)
-  assert.match(run('session-check.mjs', [], dir, env).out, solo)
-  setSolo(dir, 'off')
-  assert.doesNotMatch(run('session-check.mjs', [], dir, env).out, solo)
-})
-
 test('an old rules block in CLAUDE.md holds the hook back until setup removes it, with a backup', () => {
   const { dir, env } = configDir()
   const old = 'mine\r\n\r\n<!-- claude-starter:begin deadbeef -->\r\nold rules\r\n<!-- claude-starter:end -->\r\n\r\nafter\r\n'
@@ -323,23 +284,6 @@ test('remove keeps a worktree with gitignored files unless --include-ignored', (
   assert.ok(existsSync(join(repo, 'node_modules')))
 })
 
-test('setup sets worktree.baseRef for the project by default, for the user with --scope user', () => {
-  const { dir, env } = configDir()
-  const project = mkdtempSync(join(tmpdir(), 'starter-project-'))
-  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ theme: 'dark' }))
-  run('setup.mjs', ['apply', '--base-ref', 'head'], project, env)
-  const local = JSON.parse(readFileSync(join(project, '.claude', 'settings.local.json'), 'utf8'))
-  assert.equal(local.worktree.baseRef, 'head')
-  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')), { theme: 'dark' })
-  run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'user'], project, env)
-  assert.equal(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).worktree.baseRef, 'head')
-  // A project file that says otherwise wins, and setup says so.
-  mkdirSync(join(project, 'sub', '.claude'), { recursive: true })
-  writeFileSync(join(project, 'sub', '.claude', 'settings.local.json'), JSON.stringify({ worktree: { baseRef: 'fresh' } }))
-  assert.match(run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'user'], join(project, 'sub'), env).out, /higher-precedence .* "fresh"/)
-  assert.equal(run('setup.mjs', ['apply', '--base-ref', 'head', '--scope', 'team'], project, env).status, 1)
-})
-
 // Review gate: a repository, a plugin data dir and a transcript file, with helpers that run one hook event and
 // append a tool call to the transcript.
 function gateRepo() {
@@ -389,6 +333,7 @@ test('the review gate asks once per change set; a review or an answer moves the 
   const blocked = hook('stop')
   assert.equal(blocked.decision, 'block')
   assert.match(blocked.reason, /2 non-test file/)
+  assert.ok(blocked.reason.includes('not risky (no network, permissions or stored data)'))
   // Claude answered the gate without a review: it can stop, and the next turn doesn't ask again for the same change.
   assert.equal(hook('stop', { stop_hook_active: true }), null)
   assert.equal(hook('stop'), null)
@@ -580,15 +525,6 @@ test('setup shows and switches the review gate', () => {
   assert.equal(run('setup.mjs', ['apply', '--review-gate', 'maybe', '--data', env.CLAUDE_PLUGIN_DATA], dir, env).status, 1)
   run('setup.mjs', ['apply', '--review-gate', 'on', '--data', env.CLAUDE_PLUGIN_DATA], dir, env)
   assert.equal(state(), 'on')
-})
-
-test('every plugin workflow script parses as plain JavaScript', () => {
-  const dir = join(scripts, '..', 'workflows')
-  for (const name of readdirSync(dir).filter(f => f.endsWith('.js'))) {
-    // The workflow runtime runs the body in an async context with these globals; `export const meta` is its header.
-    const body = readFileSync(join(dir, name), 'utf8').replace(/^export const meta/m, 'const meta')
-    assert.doesNotThrow(() => new Function('args', 'agent', 'parallel', 'pipeline', 'phase', 'log', 'budget', 'workflow', `return (async () => {\n${body}\n})()`), name)
-  }
 })
 
 function agentLog(input, env = {}) {
