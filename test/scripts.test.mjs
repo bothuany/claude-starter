@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -876,7 +876,7 @@ test('claude-code-setup is not mentioned when installed but not enabled', () => 
 test('the monthly stamp and the project stamp are written only after the notice is printed', () => {
   const { env } = configDir()
   // A hook killed before it prints (simulated: stdout closed) must not use up the day's notices.
-  const result = spawnSync(process.execPath, ['-e', `console.log = () => { throw new Error('killed') }; await import(${JSON.stringify(join(scripts, 'session-check.mjs'))})`, '--input-type=module'], { cwd: plainRepo(), env: { ...process.env, ...env }, encoding: 'utf8' })
+  const result = spawnSync(process.execPath, ['-e', `console.log = () => { throw new Error('killed') }; await import(${JSON.stringify(pathToFileURL(join(scripts, 'session-check.mjs')).href)})`, '--input-type=module'], { cwd: plainRepo(), env: { ...process.env, ...env }, encoding: 'utf8' })
   assert.equal(result.status, 0)
   assert.ok(!existsSync(join(env.CLAUDE_PLUGIN_DATA, 'last-reminder')))
   assert.ok(!existsSync(join(env.CLAUDE_PLUGIN_DATA, 'projects.json')))
