@@ -324,8 +324,7 @@ export const register: Register = on => {
     if (e.tool === 'Agent' && e.effort) remember(efforts, e.tool_use_id, e.effort)
     if (e.agentId) bg(note($, e.agentId, String(e.tool), targetOf(e)))
     const ran = await next(e)
-    // A Read counts too: a resumed cycle's lead reads the plan before it edits it.
-    const edited = EDITS.has(String(e.tool)) || e.tool === 'Read' ? field(e, 'file_path') : undefined
+    const edited = EDITS.has(String(e.tool)) ? field(e, 'file_path') : undefined
     if (edited) {
       await quiet(async () => {
         const root = await rootOf($)

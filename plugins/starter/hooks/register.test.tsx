@@ -762,18 +762,31 @@ test('at the start of a main-session turn with no cycle loaded only the stored k
   expect((await texts($))[0]).toBe('cee')
 })
 
-test('a Read of a plan file under docs/plans adopts it as an edit does, so a resumed cycle shows up', async ($, on) => {
-  const w = world(on)
-  w.files.clear()
+// A resumed cycle shows up without any Read: see 'with no stored plan the first open cycle plan in docs/plans is found at start'
+// (a new session, no stored key) and 'with no cycle loaded, /phase looks for one' (a session where it was not loaded).
+test('a Read never adopts a plan: the shown cycle, the stored key and the pane stay as they were', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN })
+  const old = `${PLANS}/old-cycle.md`
+  w.files.set(PLAN, planText({ phase: 'code-review' }))
+  w.files.set(old, planText({ cycle: 'old-cycle', phase: 'build' }))
   await start($, w.time)
-  w.files.set(`${PLANS}/notes.md`, '# notes\n')
-  await $.tool.call({ tool: 'Read', file_path: win('docs/plans/notes.md') })
-  await $.tool.call({ tool: 'Read', file_path: win('docs/other.md') })
-  expect(w.panes).toEqual([])
-
-  w.files.set(PLAN, planText())
-  await $.tool.call({ tool: 'Read', file_path: PLAN_EDIT })
+  await $.command.run({ ...COMMAND, args: '' })
   expect(w.panes).toEqual(['phase'])
+
+  await $.tool.call({ tool: 'Read', file_path: win('docs/plans/old-cycle.md') })
+  await $.tool.call({ tool: 'Read', file_path: win('docs/plans/old-cycle.md'), agentId: 'a1' })
+  expect((await texts($))[0]).toBe('rate-limiter')
+  expect(w.store.get(KEY)).toBe(PLAN)
+  expect(w.panes).toEqual(['phase'])
+
+  await $.command.run({ ...COMMAND, args: '' })
+  expect(w.panes).toEqual([])
+  for (const file of ['docs/plans/old-cycle.md', 'docs/plans/rate-limiter.md']) {
+    await $.tool.call({ tool: 'Read', file_path: win(file) })
+    await $.tool.call({ tool: 'Read', file_path: win(file), agentId: 'a1' })
+  }
+  expect(w.panes).toEqual([])
+  expect(w.store.has('open:c:/work/proj')).toBe(false)
   expect(w.store.get(KEY)).toBe(PLAN)
   expect((await texts($))[0]).toBe('rate-limiter')
 })
