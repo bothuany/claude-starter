@@ -1,0 +1,41 @@
+README.md
+  s_4a37588a98a3f0::t_3ab1915f68bad5 5,87
+docs/DETAILS.md
+  s_fd78d1118bf5f6::t_ccc119e18c01f1 41
+plugins/starter/.claude-plugin/plugin.json
+  s_4a37588a98a3f0::t_eb70235b2467c0 4
+plugins/starter/hooks/register.test.tsx
+  s_fd78d1118bf5f6::t_7528d4e2e00490 899-976
+plugins/starter/hooks/register.tsx
+  s_fd78d1118bf5f6::t_7486a9fca972a7 4,9,19-20,37-40,54-60,191-198,205,299-361,365,411,431-447,494-497,509-523,667-674
+plugins/starter/scripts/review-gate.mjs
+  s_fd78d1118bf5f6::t_14a14768c96eba 91-92
+plugins/starter/types/index.d.ts
+  s_fd78d1118bf5f6::t_5a94dbafac8be2 28-30,33
+test/scripts.test.mjs
+  s_fd78d1118bf5f6::t_020056624b548a 421-435
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "83d314730695741fe42fc4acfb5542bdcf2df95a",
+  "prompts": {},
+  "sessions": {
+    "s_4a37588a98a3f0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4eed2781-15ff-4985-9303-9cf56933dc94",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    },
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
