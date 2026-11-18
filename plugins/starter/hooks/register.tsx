@@ -1,11 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-code'
 
-import type { Agent, Cycle, Plan } from '../types'
+import type { Agent, Cycle, Lead, Plan } from '../types'
 
 const PANE = 'phase'
 const cycleAtom = atom({ plugin: 'starter', key: 'cycle' } as const, null, { shape: 'cycle-1' })
 const agentsAtom = atom({ plugin: 'starter', key: 'agents' } as const, [], { shape: 'agents-1' })
+const leadAtom = atom({ plugin: 'starter', key: 'lead' } as const, { busy: false }, { shape: 'lead-1' })
 
 const PHASES = ['gather', 'plan', 'plan-review', 'build', 'code-review', 'probe'] as const
 const SHORT = ['gather', 'plan', 'review', 'build', 'review', 'probe']
@@ -15,6 +16,8 @@ const NONE = 'No cycle running. Start one with /starter:cycle <work>'
 const SOLID = 2
 const BAR = 16
 const MAX_AGENTS = 20
+const CTX = 8
+const WINDOWS: Record<string, string> = { five_hour: '5h', seven_day: '7d', spend_limit: 'spend' }
 // The roles that do each phase's work: the card shows only a running agent of one of them.
 const ROLES: Record<string, string[]> = {
   gather: ['reader'],
@@ -31,6 +34,10 @@ const clock = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 const words = (phase: string) => phase.replace('-', ' ')
+const span = (ms: number) => {
+  const m = Math.max(0, Math.floor(ms / 60000))
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}m`
+}
 const remember = <V,>(map: Map<string, V>, key: string, value: V) => {
   map.set(key, value)
   if (map.size > 50) map.delete(map.keys().next().value!)
@@ -44,6 +51,13 @@ const quiet = async (fn: () => Promise<unknown>) => {
   }
 }
 const bg = (p: Promise<unknown>) => void p.catch(() => undefined)
+const maybe = async <T,>(fn: () => Promise<T>) => {
+  try {
+    return await fn()
+  } catch {
+    return undefined
+  }
+}
 
 // Forward slashes, `.` and `..` resolved, no trailing slash, the leading `//` of a network path kept; a drive-letter path is lower-cased whole, as Windows compares it.
 const normal = (path: string) => {
@@ -174,13 +188,21 @@ async function note($: EngineInterface, agentId: string, tool: string, target?: 
   await update($, agentsAtom, list => list.map(a => (mine(a) ? { ...a, tool, target } : a)))
 }
 
+async function lead($: EngineInterface, change: (l: Lead) => Lead) {
+  await quiet(async () => {
+    const before = (await read($, leadAtom)).busy
+    await update($, leadAtom, change)
+    if ((await read($, leadAtom)).busy !== before) await sync($)
+  })
+}
+
 const rootOf = async ($: EngineInterface) => normal(await $.session.root())
 const isOpen = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
 
 // Only the latest call decides, so a slower stale one cannot cancel or restart the timer.
 async function sync($: EngineInterface) {
   const call = ++syncs
-  const live = (await read($, agentsAtom)).length > 0 && (await isOpen($))
+  const live = ((await read($, agentsAtom)).length > 0 || (await read($, leadAtom)).busy) && (await isOpen($))
   if (call !== syncs) return
   if (live && !tick) {
     tick = $.clock.every(250, () => {
@@ -274,10 +296,73 @@ async function adopt($: EngineInterface, root: string, path: string) {
   if (open?.path !== path && !(await isOpen($))) await openPane($, root)
 }
 
+// The main session in three lines: model and effort with the session's age, the context and rate-limit windows, and its tool.
+// Undefined when the model is not known yet, so a pane without it draws as before.
+async function leadBlock($: EngineInterface, now: number, width: number, Box: any, Text: any) {
+  const l = await read($, leadAtom)
+  const usage = await maybe(() => $.session.usage())
+  const model = l.model ?? (await maybe(() => $.session.model()))
+  if (!model) return undefined
+  const keep = (child: RenderChildren) => <Box flexShrink={0}>{child}</Box>
+  const rows: RenderChildren[] = [
+    <Box justifyContent="space-between" gap={2}>
+      <Box flexShrink={1} minWidth={0}>
+        <Text weight="bold" wrap="truncate-end">{[family(model), l.effort].filter(Boolean).join(' · ')}</Text>
+      </Box>
+      {usage ? keep(<Text dimColor tabular>{span(now - usage.startedAt)}</Text>) : undefined}
+    </Box>,
+  ]
+  if (usage) {
+    const pct = usage.context.percent
+    const full = pct === undefined ? 0 : Math.round((Math.min(100, pct) / 100) * CTX)
+    const limits = usage.rateLimits.map(r => `${WINDOWS[r.kind] ?? r.kind} ${Math.round(r.percentUsed)}%`).join(' · ')
+    const hot = (n: number) => (n >= 80 ? 'warning' : undefined)
+    rows.push(
+      <Box gap={2}>
+        <Box gap={1} flexShrink={0}>
+          <Text dimColor>ctx</Text>
+          <Box>
+            {full > 0 ? <Text mono color={hot(pct ?? 0) ?? 'claude'}>{'█'.repeat(full)}</Text> : undefined}
+            {full < CTX ? <Text mono dimColor>{'░'.repeat(CTX - full)}</Text> : undefined}
+          </Box>
+          <Text dimColor tabular>{pct === undefined ? '–' : `${Math.round(pct)}%`}</Text>
+        </Box>
+        {limits ? (
+          <Box flexShrink={1} flexGrow={1} minWidth={0}>
+            <Text color={hot(Math.max(...usage.rateLimits.map(r => r.percentUsed)))} dimColor={!usage.rateLimits.some(r => r.percentUsed >= 80)} wrap="truncate-end">
+              {limits}
+            </Text>
+          </Box>
+        ) : undefined}
+      </Box>,
+    )
+  }
+  rows.push(
+    l.busy ? (
+      <Box gap={1}>
+        {keep(<Text color="claude" mono>{SPIN[Math.floor(now / 250) % SPIN.length]}</Text>)}
+        {keep(<Text>{l.tool ?? 'thinking'}</Text>)}
+        {l.tool && l.target ? (
+          <Box flexShrink={1} flexGrow={1} minWidth={0}>
+            <Text dimColor wrap="truncate-end">{l.target}</Text>
+          </Box>
+        ) : undefined}
+      </Box>
+    ) : (
+      <Text dimColor>idle</Text>
+    ),
+  )
+  return (
+    <Box flexDirection="column" paddingLeft={1}>
+      {rows}
+    </Box>
+  )
+}
+
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'phase', description: 'Show the open cycle: phase, running agent and finished phases' })
+    await $.command.register({ name: 'phase', description: 'Show the main session and the open cycle: phase, running agent and finished phases' })
     await quiet(async () => {
       const root = await rootOf($)
       const found = await find($, root)
@@ -323,6 +408,7 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     if (e.tool === 'Agent' && e.effort) remember(efforts, e.tool_use_id, e.effort)
     if (e.agentId) bg(note($, e.agentId, String(e.tool), targetOf(e)))
+    else bg(lead($, l => ({ ...l, busy: true, tool: String(e.tool), target: targetOf(e) })))
     const ran = await next(e)
     const edited = EDITS.has(String(e.tool)) ? field(e, 'file_path') : undefined
     if (edited) {
@@ -338,6 +424,23 @@ export const register: Register = on => {
 
   on('turn.start', async ($, e, next) => {
     if (!e.agentId) await reload($, false)
+
+    return next(e)
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    if (!e.agentId) {
+      const effort = typeof e.effort === 'string' ? e.effort : undefined
+      bg(lead($, l => ({ ...l, busy: true, model: e.model, effort })))
+    }
+
+    return yield* next(e)
+  })
+
+  on('session.measure', async ($, e, next) => {
+    await quiet(async () => {
+      if (await isOpen($)) $.ui.invalidate('ui.render')
+    })
 
     return next(e)
   })
@@ -388,7 +491,10 @@ export const register: Register = on => {
       })
     }
     const out = await next(e)
-    if (!id) await refresh($)
+    if (!id) {
+      await refresh($)
+      await lead($, l => ({ ...l, busy: false, tool: undefined, target: undefined }))
+    }
 
     return out
   })
@@ -398,11 +504,23 @@ export const register: Register = on => {
     const none = <Text dimColor>{NONE}</Text>
     try {
       const open = await read($, cycleAtom)
-      if (!open) return none
-      const { plan } = open
-      const agents = await read($, agentsAtom)
       const now = await $.clock.now()
       const width = e.props.bodyColumns ?? 40
+      const main = await leadBlock($, now, width, Box, Text)
+      if (!open) {
+        return main ? (
+          <Box flexDirection="column" gap={1}>
+            {main}
+            <Box paddingLeft={1}>
+              <Text dimColor>no open cycle · /starter:cycle</Text>
+            </Box>
+          </Box>
+        ) : (
+          none
+        )
+      }
+      const { plan } = open
+      const agents = await read($, agentsAtom)
 
       const done = plan.phase === 'done'
       const at = done ? 5 : PHASES.findIndex(p => p === plan.phase)
@@ -546,7 +664,14 @@ export const register: Register = on => {
 
       return (
         <Box flexDirection="column" gap={1}>
-          {head}
+          {main ? (
+            <Box flexDirection="column">
+              {head}
+              {main}
+            </Box>
+          ) : (
+            head
+          )}
           {stations}
           {card(...body)}
           {finished.length > 0 ? <Box flexDirection="column">{finished}</Box> : undefined}

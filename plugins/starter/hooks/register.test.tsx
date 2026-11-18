@@ -896,3 +896,81 @@ test('the open flag is per project root, needs a loaded cycle, and the old globa
   expect(w.store.get('open:c:/work/proj')).toBe(true)
   expect(w.panes).toEqual([])
 })
+
+const USAGE = {
+  startedAt: 1000 - (2 * 60 + 14) * 60_000,
+  context: { tokens: 124_000, window: 200_000, percent: 62 },
+  rateLimits: [{ kind: 'five_hour', percentUsed: 41 }, { kind: 'seven_day', percentUsed: 12 }],
+}
+const step = async ($: Engine, agentId?: string) => {
+  for await (const _ of $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', effort: 'medium', messageCount: 1, agentId })) void _
+}
+function lead(on: On, usage: unknown = USAGE) {
+  on('session.usage', () => ({ value: usage }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] }
+  })
+}
+
+test('with no cycle, the main session shows its model, age, context, rate limits and state over a dim line naming /starter:cycle', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  lead(on)
+  await start($, w.time)
+
+  expect(await content($)).toEqual([
+    ' Opus 5.5'.padEnd(39) + '2h14m',
+    ' ctx █████░░░ 62%  5h 41% · 7d 12%',
+    ' idle',
+    ' no open cycle · /starter:cycle',
+  ])
+})
+
+test("the main session's effort comes from its own request, and a subagent's request changes nothing", async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  lead(on)
+  await start($, w.time)
+  await step($, 'a1')
+  expect((await content($))[0]).toBe(' Opus 5.5'.padEnd(39) + '2h14m')
+  await step($)
+  expect((await content($))[0]).toBe(' Opus 5.5 · medium'.padEnd(39) + '2h14m')
+})
+
+test("the main session's tool shows while its turn runs and turns to idle when the turn ends", async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  lead(on)
+  await start($, w.time)
+  await $.tool.call({ tool: 'Bash', command: 'dotnet test --no-build secret=1' })
+  await w.time.settle()
+  expect((await content($))[2]).toMatch(/^ \S Bash dotnet test$/)
+  await $.turn.complete(complete(undefined))
+  await w.time.settle()
+  expect((await content($))[2]).toBe(' idle')
+})
+
+test('with a cycle open the main session sits under the title', async ($, on) => {
+  lead(on)
+  await writer(on, $)
+  const lines = await content($)
+  expect(lines.slice(0, 5)).toEqual([
+    'rate-limiter'.padEnd(41) + '4/6',
+    ' Opus 5.5'.padEnd(39) + '2h18m',
+    ' ctx █████░░░ 62%  5h 41% · 7d 12%',
+    ' idle',
+    ' ━━●━━━━━━━●━━━━━━━●━━━━━━━◉╌╌╌╌╌╌╌○╌╌╌╌╌╌╌○',
+  ])
+})
+
+test('a rate-limit window at 80% or more is drawn as a warning, and a context not measured yet shows a dash', async ($, on) => {
+  const w = world(on)
+  w.files.clear()
+  lead(on, { ...USAGE, context: { window: 200_000 }, rateLimits: [{ kind: 'five_hour', percentUsed: 85 }] })
+  await start($, w.time)
+  expect((await content($))[1]).toBe(' ctx ░░░░░░░░ –  5h 85%')
+  const ui = await $.ui.mount(mounted('terminal', 44))
+  expect((await ui.find({ type: 'Text', text: '5h 85%' }))?.props).toMatchObject({ color: 'warning' })
+  await ui.unmount()
+})

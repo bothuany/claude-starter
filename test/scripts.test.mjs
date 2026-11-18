@@ -420,6 +420,21 @@ test('the review gate ignores lockfiles, build output, pure renames and whitespa
   assert.equal(hook('stop'), null)
 })
 
+test('the review gate ignores moved submodule pointers', () => {
+  const { root, repo, hook, edit } = gateRepo()
+  const lib = join(root, 'lib')
+  mkdirSync(lib)
+  git(lib, 'init', '-q')
+  git(lib, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'one')
+  git(repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', lib, 'lib')
+  git(repo, 'commit', '-qm', 'lib')
+  hook('start')
+  git(join(repo, 'lib'), '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'two')
+  // 14 lines in one file stays under the threshold; the pointer would add a second file and 2 lines.
+  edit('src/a.js', 'b\n'.repeat(13))
+  assert.equal(hook('stop'), null)
+})
+
 test('the review gate leaves large untracked files out and writes nothing into .git', () => {
   const { repo, hook, edit } = gateRepo()
   const objects = () => readdirSync(join(repo, '.git', 'objects')).length

@@ -25,8 +25,11 @@ export type Agent = {
   target?: string
 }
 
+// The main session as the pane shows it: the model and effort of its last request, and the tool it runs.
+export type Lead = { busy: boolean; model?: string; effort?: string; tool?: string; target?: string }
+
 declare module 'claude-code' {
   interface PluginState {
-    starter: { cycle: Shaped<Cycle | null>; agents: Shaped<Agent[]> }
+    starter: { cycle: Shaped<Cycle | null>; agents: Shaped<Agent[]>; lead: Shaped<Lead> }
   }
 }

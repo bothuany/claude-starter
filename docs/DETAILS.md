@@ -38,7 +38,7 @@ Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the O
 | **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping; a change that is not risky gets a one-line answer |
 | **`cycle`** | Skill (you run it) | Runs one piece of work through gather, plan, plan review, build, code review and probe, handing off through a plan file; off unless you start it |
 | **Role agents** | `reader` (Sonnet, medium), `writer` (Sonnet, high), `reviewer` (Opus, medium) | Each role fixes its model and effort; they are started by name and start clean |
-| **`/phase`** | Mod command and pane | Shows the open cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
+| **`/phase`** | Mod command and pane | Shows the main session (model, effort, session age, context, rate limits, current tool) and, during a cycle, its phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | **`visual-plan`** | Skill | Writes a plan in the plan-file format first; an optional visual page of it |
 | **`grill`**, **`review-setup`** | Skills (you run them) | Interview you about a loose idea; draft a short `REVIEW.md` for your repo |
 | **`clean-worktrees`** | Skill (you run it) | Removes clean, merged worktrees and branches, and never deletes through links into your main checkout |

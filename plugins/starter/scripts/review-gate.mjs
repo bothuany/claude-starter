@@ -88,7 +88,8 @@ export function changedCode(cwd, fromTree, toTree, env) {
   }
   // -z: raw paths (no quoting of non-ASCII names). A record is "added<TAB>deleted<TAB>path", or for a rename
   // "added<TAB>deleted<TAB>" followed by the old and the new path as two more records; the new path is the one judged.
-  const records = git(cwd, ['diff', '--numstat', '-z', '-M', '-w', fromTree, toTree], env).split('\0')
+  // A moved submodule pointer is the submodule's change, not code written here.
+  const records = git(cwd, ['diff', '--numstat', '-z', '-M', '-w', '--ignore-submodules=all', fromTree, toTree], env).split('\0')
   const files = []
   for (let i = 0; i < records.length; i++) {
     const [added, deleted, path] = records[i].split('\t')
