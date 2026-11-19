@@ -907,5 +907,17 @@ test('plan-check skips indented example fences, keeps long output, and works fro
   writeFileSync(join(repo, 'p.md'), plan(['author: me@x'], ['- [ ] 1. a', '  check: touch nocycle.txt']))
   assert.equal(run('plan-check.mjs', ['p.md'], repo).status, 2)
   assert.ok(!existsSync(join(repo, 'nocycle.txt')))
+  // A wrapped line that starts with inline code is not a fence: the items after it still count.
+  writeFileSync(join(repo, 'p.md'), plan(['cycle: c', 'author: me@x', 'phase: build'], [
+    '- [ ] 1. a', '  ```x``` inline', '  check: true', '- [ ] 2. b', '  check: false',
+  ]))
+  assert.equal(run('plan-check.mjs', ['p.md'], repo).out, 'FAIL 1/2: 2')
+  // A plan outside any repository runs nothing, even when a global user.email matches.
+  const loose = join(root, 'loose')
+  mkdirSync(loose)
+  writeFileSync(join(loose, 'p.md'), plan(['cycle: c', 'author: me@x', 'phase: build'], ['- [ ] 1. a', '  check: true']))
+  const outside = run('plan-check.mjs', ['p.md'], loose, { GIT_CONFIG_GLOBAL: join(repo, '.git', 'config'), GIT_CEILING_DIRECTORIES: root })
+  assert.equal(outside.status, 2)
+  assert.match(outside.err, /not in a git repository/)
   assert.equal(run('plan-check.mjs', ['missing.md'], repo).status, 2)
 })

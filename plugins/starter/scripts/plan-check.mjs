@@ -25,7 +25,8 @@ export function parseChecks(text) {
   let section = ''
   let fence
   for (const line of lines.slice(end + 1)) {
-    const run = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
+    // A backtick fence has no backtick after its opening run (CommonMark); "```x``` text" is inline code.
+    const run = /^\s*(`{3,}(?!.*`)|~{3,})/.exec(line)?.[1]
     if (fence ? run && run[0] === fence[0] && run.length >= fence.length : run) {
       fence = fence ? undefined : run
       continue
@@ -80,6 +81,10 @@ function main() {
     return 2
   }
   const cwd = git(['rev-parse', '--show-toplevel'])
+  if (!cwd) {
+    console.error(`${file}: not in a git repository; ran nothing`)
+    return 2
+  }
   const failed = []
   for (const { n, check } of plan.items) {
     if (!check) {
