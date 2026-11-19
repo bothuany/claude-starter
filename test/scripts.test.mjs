@@ -888,3 +888,24 @@ test('plan-check runs every check, names the failures, and runs nothing in anoth
   writeFileSync(join(repo, 'p.md'), '---\ncycle: c\nauthor: me@x\nphase: build\n---\n## Items\n- [ ] 1. a\n  check: `true`\n')
   assert.deepEqual(run('plan-check.mjs', ['p.md'], repo), { out: 'PASS 1/1', err: '', status: 0 })
 })
+
+test('plan-check skips indented example fences, keeps long output, and works from outside the repo', () => {
+  const root = mkdtempSync(join(tmpdir(), 'starter-plan-'))
+  const repo = join(root, 'repo')
+  mkdirSync(repo)
+  git(repo, 'init', '-q')
+  git(repo, 'config', 'user.email', 'me@x')
+  const plan = (front, items) => ['---', ...front, '---', '## Items', ...items].join('\n')
+  writeFileSync(join(repo, 'p.md'), plan(['cycle: c', 'author: me@x', 'phase: build'], [
+    '- [ ] 1. an example inside the item:', '  ```', '  check: touch example.txt', '  ```', '  check: touch real.txt',
+    '- [ ] 2. loud', '  check: `yes | head -c 2000000; exit 0`',
+  ]))
+  const r = run('plan-check.mjs', [join(repo, 'p.md')], root)
+  assert.equal(r.out, 'PASS 2/2')
+  assert.ok(existsSync(join(repo, 'real.txt')) && !existsSync(join(repo, 'example.txt')))
+
+  writeFileSync(join(repo, 'p.md'), plan(['author: me@x'], ['- [ ] 1. a', '  check: touch nocycle.txt']))
+  assert.equal(run('plan-check.mjs', ['p.md'], repo).status, 2)
+  assert.ok(!existsSync(join(repo, 'nocycle.txt')))
+  assert.equal(run('plan-check.mjs', ['missing.md'], repo).status, 2)
+})
