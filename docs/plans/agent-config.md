@@ -1,8 +1,7 @@
 ---
 cycle: agent-config
 author: rbdikmen@gmail.com
-phase: plan-review
-waiting: user
+phase: build
 branch: cycle/agent-config
 ---
 
@@ -95,3 +94,4 @@ also sit too close together to read (screenshot from the desktop app: the head b
 - gather: profiles approved by the user; screenshot (desktop) shows the head block and card rows crowded; `$.config.set` writes a plugin's own `<plugin>.<field>` row (ConfigRow doc in the engine types)
 - plan: 6 items, each with a check; profiles, fields and spacing settled in the decisions
 - plan-review: 10 findings (reviewer); all settled in the plan: command renamed /roles (user), title+type fields, README badge, per-item test prefixes, docs lines, type-error count
+- plan-review: approved by the user
