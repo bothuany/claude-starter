@@ -855,3 +855,36 @@ test('settings drift: the max profile matches the agents frontmatter, and MODELS
     assert.deepEqual(userConfig[`${role}_effort`].options.slice(1), efforts)
   }
 })
+
+test('plan-check runs every check, names the failures, and runs nothing in another author\'s plan', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'starter-plan-'))
+  git(repo, 'init', '-q')
+  git(repo, 'config', 'user.email', 'Me@x')
+  const plan = author => [
+    '﻿---', 'cycle: c', `author: ${author}`, 'phase: build', '---', '## Items',
+    '- [x] 1. passes', '  check: `true`',
+    '- [ ] 2. fails', '  more text', '  check: `echo boom; exit 3`',
+    '- [X] 3. writes a file', '  check: touch ran.txt',
+    '- [ ] 4. no check',
+    '```', '- [ ] 5. an example in a fence', '  check: `false`', '```',
+    '## Log', '- plan: x',
+  ].join('\r\n')
+  writeFileSync(join(repo, 'p.md'), plan('me@X'))
+  const r = run('plan-check.mjs', ['p.md'], repo)
+  assert.equal(r.out, 'FAIL 2/4: 2, 4')
+  assert.equal(r.status, 1)
+  assert.match(r.err, /--- 2: exit 3\nboom/)
+  assert.ok(existsSync(join(repo, 'ran.txt')))
+
+  rmSync(join(repo, 'ran.txt'))
+  for (const author of ['other@x', 'me@x\r\nauthor: me@x']) {
+    writeFileSync(join(repo, 'p.md'), plan(author))
+    const foreign = run('plan-check.mjs', ['p.md'], repo)
+    assert.equal(foreign.status, 2)
+    assert.match(foreign.err, /ran nothing/)
+    assert.ok(!existsSync(join(repo, 'ran.txt')))
+  }
+
+  writeFileSync(join(repo, 'p.md'), '---\ncycle: c\nauthor: me@x\nphase: build\n---\n## Items\n- [ ] 1. a\n  check: `true`\n')
+  assert.deepEqual(run('plan-check.mjs', ['p.md'], repo), { out: 'PASS 1/1', err: '', status: 0 })
+})

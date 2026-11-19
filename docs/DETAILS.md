@@ -99,7 +99,7 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 | gather | lead | Settle what the work is for and its decisions with you, a few questions at a time; wide reading goes to `reader` |
 | plan | lead | Write the plan file: why, decisions, items, each with a check |
 | plan-review | `reviewer` | One pass: every item has a check that can run and tests the item, the plan agrees with the code it names, nothing the goal needs is missing. The lead settles the findings, then waits for your approval |
-| build | `writer` | Builds the items in order from the plan file, ticking each after its check passes |
+| build | `writer` | Builds the items in order from the plan file, ticking each after its check passes; then the lead reruns every check with `scripts/plan-check.mjs` and sends a failure back to the writer |
 | code-review | `reviewer` | Reviews the diff against the plan and `REVIEW.md`; findings go back to the writer that built the change |
 | probe | lead | Runs every check and shows the output; for a high-risk change the reviewer also tries to break it |
 
@@ -353,7 +353,7 @@ The rules were rewritten in 0.10 too; the review-gate and rule-following numbers
 - **Off by default.** The cycle starts only when you type `/starter:cycle <work>`. Questions and small fixes are answered directly; a cycle is for a piece of work big enough to need a plan.
 - **Small contexts, a durable plan.** The cycle hands off through a plan file instead of keeping one long lead session alive: the build and the reviews start in a clean context and read the file. The lead re-reads the file at every phase, so a compaction or a new session loses nothing.
 - **Named roles, never forks.** A fork inherits the lead's whole context, which is the cost the cycle avoids. `writer`, `reviewer` and `reader` are started by name and start clean.
-- **A check for every item.** An item is done when its command exits 0, not when someone says so. The writer ticks it after the check passes, and the probe runs every check again.
+- **A check for every item.** An item is done when its command exits 0, not when someone says so. The writer ticks it after the check passes; `scripts/plan-check.mjs <plan>` reruns them all after the build and in the probe, prints `PASS n/n` or `FAIL k/n: <items>`, exits 0 only when all pass, and runs nothing in a plan that is not yours.
 
 ## Limits to know
 
