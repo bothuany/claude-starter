@@ -66,7 +66,7 @@ The cycle is off by default. You start it for one piece of work with `/starter:c
 ![The cycle. Six phases on one line: gather (lead and you), plan (lead), plan review (reviewer, then you approve), build (writer), code review (reviewer, the writer fixes), probe (lead). Plan review, build and code review run in a clean context that starts from the plan file. Every phase reads and writes docs/plans/slug.md, which holds the phase, the items with their checks, and the log.](assets/cycle.svg)
 
 - **The plan file is the contract.** It holds the decisions and a list of items, each with a check, a command that passes when the item is done. The writer ticks an item only after its check passes. The lead re-reads the file at every phase, so a new session can resume with `/starter:cycle`.
-- **Roles are named, never forks.** `writer` builds from the plan file, `reviewer` reviews the plan, then the code against the plan and `REVIEW.md`, and `reader` does wide reading. By default (the `max` profile) the writer runs on Sonnet at high effort, the reviewer on Opus at medium and the reader on Sonnet at medium; a profile or `/roles` changes them. A fork would inherit the lead's whole context, which is what the cycle avoids.
+- **Roles are named, never forks.** `writer` builds from the plan file, `reviewer` reviews the plan, then the code against the plan and `REVIEW.md`, and `reader` does wide reading. By default (the `max` profile) the writer runs on Sonnet at high effort, the reviewer on Opus at medium and the reader on Sonnet at medium; the `profile` row of `/config` changes them. A fork would inherit the lead's whole context, which is what the cycle avoids.
 - **Work stays on a branch.** The lead creates `cycle/<slug>` and commits there after each phase; nothing is pushed or merged unless you ask.
 
 ## Always on
@@ -83,7 +83,7 @@ Two things work in every session, with no cycle started:
 | Working rules | The always-on rules above |
 | Review gate | The `Stop` hook above |
 | `/starter:cycle` | `/starter:cycle <work>` starts a cycle and writes its plan file; with no argument it resumes the open one; `off` stops it |
-| Role agents | `reader` (Sonnet, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, medium) checks a plan or a change with a fresh context. Those are the defaults; `/roles` or `/config` changes them |
+| Role agents | `reader` (Sonnet, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, medium) checks a plan or a change with a fresh context. Those are the defaults; `/config` changes them |
 | `/phase` | Opens a side pane: the main session's model, effort, context, rate limits and current tool, with or without a cycle; during a cycle also its phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open; `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | `visual-plan` | Writes a plan in the plan-file format first; an optional visual page of it shows diagrams, the API contract, the data model, items with their checks and open questions |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
@@ -94,7 +94,7 @@ Two things work in every session, with no cycle started:
 
 ## Pick the agents' model and effort
 
-The roles start on the `max` profile (reader Sonnet medium, writer Sonnet high, reviewer Opus medium). To spend less, choose `balanced` or `light` in the `profile` row of `/config` (or at install), or type `/roles` for a pane with a picker for the profile and for each role's model and effort. A role field set to anything but `profile` wins over the profile. The profiles and the exact rules are in [the details](docs/DETAILS.md#agent-model-and-effort).
+The roles start on the `max` profile (reader Sonnet medium, writer Sonnet high, reviewer Opus medium). To spend less, choose `balanced` or `light` in the `profile` row of `/config` (or at install, or with `/plugin configure`); each role's model and effort has its own row there too. A role field set to anything but `profile` wins over the profile. The profiles and the exact rules are in [the details](docs/DETAILS.md#agent-model-and-effort).
 
 ## Turn things off
 

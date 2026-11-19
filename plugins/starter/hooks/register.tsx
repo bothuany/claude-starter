@@ -1,11 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { ConfigValue, EngineInterface, PluginOptions, Register, RenderChildren, Timer } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, RenderChildren, Timer } from 'claude-code'
 
 import type { Agent, Cycle, Lead, Plan } from '../types'
 
 const PANE = 'phase'
-const ROLES_PANE = 'roles'
-const AGENTS = ['reader', 'writer', 'reviewer']
 const cycleAtom = atom({ plugin: 'starter', key: 'cycle' } as const, null, { shape: 'cycle-2' })
 const agentsAtom = atom({ plugin: 'starter', key: 'agents' } as const, [], { shape: 'agents-1' })
 const leadAtom = atom({ plugin: 'starter', key: 'lead' } as const, { busy: false }, { shape: 'lead-1' })
@@ -224,7 +222,7 @@ async function lead($: EngineInterface, change: (l: Lead) => Lead) {
 }
 
 const rootOf = async ($: EngineInterface) => normal(await $.session.root())
-const isOpen = async ($: EngineInterface, id = PANE) => (await $.ui.panes()).some(p => p.id === id)
+const isOpen = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
 
 // Only the latest call decides, so a slower stale one cannot cancel or restart the timer.
 async function sync($: EngineInterface) {
@@ -410,7 +408,6 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await quiet(async () => void emails.delete(await rootOf($)))
     await $.command.register({ name: 'phase', description: 'Show the main session and the open cycle: phase, running agent and finished phases' })
-    await $.command.register({ name: 'roles', description: 'Pick the model and effort of the reader, writer and reviewer agents' })
     await quiet(async () => {
       const root = await rootOf($)
       const found = await find($, root)
@@ -443,61 +440,6 @@ export const register: Register = (on, options) => {
     })
 
     return { text }
-  })
-
-  on('command.run', { command: 'roles' }, async $ => {
-    let text = 'Roles pane opened.'
-    await quiet(async () => {
-      if (await isOpen($, ROLES_PANE)) {
-        text = 'Roles pane closed.'
-        await $.ui.close({ id: ROLES_PANE })
-      } else await $.ui.open({ id: ROLES_PANE, title: 'Roles' })
-    })
-
-    return { text }
-  })
-
-  // One Select per userConfig field. The rows come from `$.config.list()`, so a pick writes the row's own key and the pane shows what the menu holds.
-  on('ui.render', { component: 'Pane', requestId: ROLES_PANE }, async ($, e) => {
-    const { Box, Text, Select } = $.ui.resolve(e)
-    try {
-      const rows = (await $.config.list()).filter(r => r.provider.plugin === $.plugin.name)
-      const row = (f: string) => rows.find(r => r.key.endsWith(`.${f}`))
-      const values: Record<string, ConfigValue> = {}
-      for (const r of rows) values[r.key.slice(r.key.lastIndexOf('.') + 1)] = r.value
-      const change = async (key: string, value: string) => {
-        const { deny } = await $.config.set({ key, value })
-        if (deny) $.ui.toast(deny)
-      }
-      const pick = (f: string) => {
-        const r = row(f)
-        return r?.options ? <Select key={f} label={r.label} options={r.options.map(value => ({ value }))} value={String(r.value)} onSelect={value => bg(change(r.key, value))} /> : undefined
-      }
-      const resolved = (role: string) => {
-        try {
-          const { model, effort } = resolveRole(values, role)
-          return `${role} · ${model} · ${effort}`
-        } catch {
-          return `${role} · ?`
-        }
-      }
-      if (!rows.length) return <Text dimColor>No settings found for this plugin.</Text>
-
-      return (
-        <Box flexDirection="column" rowGap="sm" paddingLeft={1}>
-          {pick('profile')}
-          {AGENTS.map(role => (
-            <Box flexDirection="column">
-              <Text weight="bold">{resolved(role)}</Text>
-              {pick(`${role}_model`)}
-              {pick(`${role}_effort`)}
-            </Box>
-          ))}
-        </Box>
-      )
-    } catch {
-      return <Text dimColor>No settings found for this plugin.</Text>
-    }
   })
 
   on('ui.close', { id: PANE }, async ($, e, next) => {

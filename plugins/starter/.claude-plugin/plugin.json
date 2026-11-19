@@ -2,7 +2,7 @@
   "name": "starter",
   "displayName": "claude-starter",
   "version": "0.11.0",
-  "description": "A small, opinionated user-level setup: ask-before-assuming and verify-before-done rules injected at session start, a review gate, an opt-in cycle (gather, plan, plan review, build, code review, probe) that hands off through a plan file to role agents (reader, writer, reviewer) whose model and effort you choose with a profile or in /roles, a /phase pane, a visual-plan skill, safe worktree cleanup, and a monthly review with optional context7 MCP server.",
+  "description": "A small, opinionated user-level setup: ask-before-assuming and verify-before-done rules injected at session start, a review gate, an opt-in cycle (gather, plan, plan review, build, code review, probe) that hands off through a plan file to role agents (reader, writer, reviewer) whose model and effort you choose with a profile in /config, a /phase pane, a visual-plan skill, safe worktree cleanup, and a monthly review with optional context7 MCP server.",
   "author": { "name": "Batuhan Dikmen", "url": "https://github.com/bothuany" },
   "repository": "https://github.com/bothuany/claude-starter",
   "license": "MIT",

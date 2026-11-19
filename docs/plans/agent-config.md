@@ -39,12 +39,8 @@ also sit too close together to read (screenshot from the desktop app: the head b
   model and effort. A failure in resolving falls back to passing `e` unchanged (the hook must never break a spawn).
   Not `${user_config}` in agent frontmatter: the docs do not say it is substituted there.
 - The agent frontmatter keeps today's values (the `max` profile), so the plugin behaves as before when no hook runs.
-- `/roles` (registered as `roles` with `$.command.register`, like `phase`; a mod command can't hold a colon and
-  `/agents` is built in) toggles a pane (id `roles`) with one `Select` per field, drawn on terminal and desktop.
-  A pick calls `$.config.set({ key, value })`, the key taken from `$.config.list()` (the row whose provider is this
-  plugin and whose key ends in `.<field>`), so an installed and a `--plugin-dir` copy both work. Each role row also
-  shows the resolved `model · effort` it will run on. A `{ deny }` (a locked row) shows a toast. A pick reloads the
-  module (`register` runs again with the new `options`).
+- No settings pane of our own: after probe the user dropped the `/roles` pane; the settings are managed in `/config`
+  (and at install or with `/plugin configure`).
 - Only `starter:`-prefixed `subagent_type` values are rewritten: a bare `reviewer` may be the user's own agent.
 - Global env vars (`CLAUDE_CODE_SUBAGENT_MODEL` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, `CLAUDE_CODE_EFFORT_LEVEL`)
   are documented as a fallback only: they apply to every subagent, not per role.
@@ -53,7 +49,7 @@ also sit too close together to read (screenshot from the desktop app: the head b
   list. `sm` is 0 rows in the terminal (so a narrow terminal pane gets no taller) and a small gap on desktop.
 - Version 0.11.0: `plugins/starter/.claude-plugin/plugin.json` and the badge at `README.md:5`
   (`.claude-plugin/marketplace.json` has no version).
-- Tests are named with a prefix per item (`settings:`, `roles pane:`, `spacing:`) so each check can find its own.
+- Tests are named with a prefix per item (`settings:`, `spacing:`) so each check can find its own.
   `claude plugin test` has no filter and passes on today's tree, so a check greps for its prefix too.
 
 ## Items
@@ -72,19 +68,17 @@ also sit too close together to read (screenshot from the desktop app: the head b
   test). The existing test at `register.test.tsx:603-604` (`starter:reader` with `effort: 'max'` expecting `max`) is
   rewritten for "the setting wins".
   check: `out=$(claude plugin test plugins/starter 2>&1) && [ "$(echo "$out" | grep -c '(pass) settings:')" -ge 7 ]`
-- [x] 3. `/roles` command and pane: Selects for the seven fields, resolved `model · effort` per role, a pick calls
-  `$.config.set` with the listed row's key, a deny shows a toast; `/roles` again closes it. Tests (`roles pane:`
-  prefix) mount it on `terminal` and `desktop`, select a value and assert the `config.set` it raised (key and
-  value), and a deny raises a toast.
-  check: `out=$(claude plugin test plugins/starter 2>&1) && [ "$(echo "$out" | grep -c '(pass) roles pane:')" -ge 3 ]`
+- [x] 3. (Dropped after probe by the user: no `/roles` pane; `/config` manages the settings.) No `roles` command
+  is registered.
+  check: `! grep -q "name: 'roles'" plugins/starter/hooks/register.tsx && ! grep -q '/roles' README.md docs/DETAILS.md`
 - [x] 4. /phase spacing: `rowGap="sm"` on the boxes named in the decisions; the rail column matches the body column.
   A test (`spacing:` prefix) asserts the rail and body columns carry the same `rowGap` and the rail's `▍` count still
   equals the body's line count; existing pane snapshot tests are updated, not deleted.
   check: `out=$(claude plugin test plugins/starter 2>&1) && echo "$out" | grep -q '(pass) spacing:'`
-- [x] 5. Docs: README (one short section: picking a profile, `/config`, `/roles`), `docs/DETAILS.md` (fields,
+- [x] 5. Docs: README (one short section: picking a profile, `/config`), `docs/DETAILS.md` (fields,
   profile table, precedence, the env var fallback) and the plugin.json `description`. Fix the lines that say a role
   fixes its model and effort: `README.md:86`, `docs/DETAILS.md:40`, `docs/DETAILS.md:332`.
-  check: `grep -q "/roles" README.md && grep -q "CLAUDE_CODE_SUBAGENT_MODEL" docs/DETAILS.md && grep -qE "^\| *balanced" docs/DETAILS.md && ! grep -q "Each role fixes its model and effort" README.md docs/DETAILS.md`
+  check: `grep -q "profile" README.md && grep -q "CLAUDE_CODE_SUBAGENT_MODEL" docs/DETAILS.md && grep -qE "^\| *balanced" docs/DETAILS.md && ! grep -q "Each role fixes its model and effort" README.md docs/DETAILS.md`
 - [x] 6. Script tests pass and no new type errors: `claude plugin validate` exits 0 on type errors, so count them;
   the two in `register.test.tsx` (lines ~979, ~981) are pre-existing and left alone.
   check: `node --test test/scripts.test.mjs && [ "$(claude plugin validate plugins/starter 2>&1 | grep -c 'error TS')" -le 2 ]`
@@ -98,3 +92,4 @@ also sit too close together to read (screenshot from the desktop app: the head b
 - build: 6/6 items ticked, every check exit 0 (writer); 56 plugin tests pass, TS error count unchanged at 2
 - code-review: round 1 five findings (3 fixed-needed, 2 needs-decision, both fixed); round 2 all five fixed, 0 new (reviewer, mutation-checked)
 - probe: all 6 checks exit 0; plugin tests 57 pass 0 fail; script tests pass; TS errors 2 (pre-existing); try-to-break by reviewer in code-review round 1 (stored config write)
+- after probe: the user dropped the `/roles` pane (managed in /config); command, pane, its tests and docs removed

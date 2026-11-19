@@ -68,7 +68,6 @@ New MCP servers show up after a restart.
 |---|---|
 | `/starter:setup` | Show and apply the setup above. `/starter:setup check` only reports the current state |
 | `/starter:cycle <work>` | Start a cycle for one piece of work and write its plan file. With no argument it resumes the open cycle; `off` stops it |
-| `/roles` | Open or close a pane with a picker for the `profile` and for each role's model and effort, and the `model · effort` each role will run on |
 | `/phase` | Open or close the cycle pane: the phase, the running agent and the plan's finished items. It also opens by itself when a cycle's plan file is first written, and in a later session if it was open, and stays closed for that plan once you close it |
 | `/starter:clean-worktrees` | List worktrees and branches, propose what's safe to remove, ask, then remove it. Add `all-merged` to skip the question, or `--into <branch>` to measure "merged" against another branch |
 | `/starter:monthly-review` | Run the monthly review. `off` stops the reminder; `on` brings it back |
@@ -129,8 +128,6 @@ The plugin declares seven string settings in `userConfig`, asked at install and 
 | light | haiku · low | sonnet · medium | sonnet · medium |
 
 **Precedence:** a role field set to anything but `profile` wins over the profile and stays when the profile changes; the setting wins over a `model` or `effort` the lead passes in the Agent call. Only `starter:reader`, `starter:writer` and `starter:reviewer` are rewritten (a bare `reviewer` may be your own agent), in the `tool.call` hook, so the `/phase` card shows what really runs. If the settings can't be resolved the call goes through unchanged. The agent files keep the `max` values, so the roles behave the same when the hook doesn't run. `inherit` is not offered: the Agent tool's `model` parameter doesn't take it.
-
-`/roles` is the same settings in a pane, one picker per field.
 
 **Fallback:** the environment variables `CLAUDE_CODE_SUBAGENT_MODEL` (with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`) and `CLAUDE_CODE_EFFORT_LEVEL` apply to every subagent, not per role, so they are only a fallback for setups where the plugin's hook does not run.
 
