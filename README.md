@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews risky changes, and gives a piece of work a named cycle: a plan file, a clean-context build, and reviews that start fresh.
 
-[![version 0.10.2](https://img.shields.io/badge/version-0.10.2-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.11.0](https://img.shields.io/badge/version-0.11.0-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -83,7 +83,7 @@ Two things work in every session, with no cycle started:
 | Working rules | The always-on rules above |
 | Review gate | The `Stop` hook above |
 | `/starter:cycle` | `/starter:cycle <work>` starts a cycle and writes its plan file; with no argument it resumes the open one; `off` stops it |
-| Role agents | `reader` (Sonnet, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, medium) checks a plan or a change with a fresh context. Each role fixes its model and effort |
+| Role agents | `reader` (Sonnet, medium) reads and reports, `writer` (Sonnet, high) changes files, `reviewer` (Opus, medium) checks a plan or a change with a fresh context. Those are the defaults; `/roles` or `/config` changes them |
 | `/phase` | Opens a side pane: the main session's model, effort, context, rate limits and current tool, with or without a cycle; during a cycle also its phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open; `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | `visual-plan` | Writes a plan in the plan-file format first; an optional visual page of it shows diagrams, the API contract, the data model, items with their checks and open questions |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
@@ -91,6 +91,10 @@ Two things work in every session, with no cycle started:
 | `/starter:clean-worktrees` | Removes clean, merged worktrees and branches, never through a symlink into your checkout |
 | `/starter:monthly-review` | Checks `/insights` against your setup, applies at most two changes, prunes stale memory |
 | `/starter:setup` | Optional add-ons (context7, i-have-adhd, ponytail) and turning the rules or the gate off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip project-setup` |
+
+## Pick the agents' model and effort
+
+The roles start on the `max` profile (reader Sonnet medium, writer Sonnet high, reviewer Opus medium). To spend less, choose `balanced` or `light` in the `profile` row of `/config` (or at install), or type `/roles` for a pane with a picker for the profile and for each role's model and effort. A role field set to anything but `profile` wins over the profile. The profiles and the exact rules are in [the details](docs/DETAILS.md#agent-model-and-effort).
 
 ## Turn things off
 

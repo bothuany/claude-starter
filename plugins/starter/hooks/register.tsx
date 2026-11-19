@@ -1,9 +1,11 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-code'
+import type { ConfigValue, EngineInterface, PluginOptions, Register, RenderChildren, Timer } from 'claude-code'
 
 import type { Agent, Cycle, Lead, Plan } from '../types'
 
 const PANE = 'phase'
+const ROLES_PANE = 'roles'
+const AGENTS = ['reader', 'writer', 'reviewer']
 const cycleAtom = atom({ plugin: 'starter', key: 'cycle' } as const, null, { shape: 'cycle-2' })
 const agentsAtom = atom({ plugin: 'starter', key: 'agents' } as const, [], { shape: 'agents-1' })
 const leadAtom = atom({ plugin: 'starter', key: 'lead' } as const, { busy: false }, { shape: 'lead-1' })
@@ -27,6 +29,26 @@ const ROLES: Record<string, string[]> = {
   // The writer that fixes the findings runs in this phase too.
   'code-review': ['reviewer', 'writer'],
   probe: ['reviewer'],
+}
+
+// Model and effort per role for each profile; the userConfig fields `<role>_model` and `<role>_effort` win over it.
+const PROFILES: Record<string, Record<string, [string, string]>> = {
+  max: { reader: ['sonnet', 'medium'], writer: ['sonnet', 'high'], reviewer: ['opus', 'medium'] },
+  balanced: { reader: ['sonnet', 'low'], writer: ['sonnet', 'medium'], reviewer: ['sonnet', 'high'] },
+  light: { reader: ['haiku', 'low'], writer: ['sonnet', 'medium'], reviewer: ['sonnet', 'medium'] },
+}
+const MODELS = ['opus', 'sonnet', 'haiku']
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+// Throws on a value outside the tables: the caller then leaves the call as the lead made it.
+const resolveRole = (options: PluginOptions, role: string) => {
+  const base = PROFILES[String(options.profile)]?.[role]
+  const pick = (kind: string, i: number, allowed: string[]) => {
+    const set = options[`${role}_${kind}`]
+    const value = set === 'profile' ? base?.[i] : set
+    if (typeof value !== 'string' || !allowed.includes(value)) throw new Error(`no ${kind} for ${role}`)
+    return value
+  }
+  return { model: pick('model', 0, MODELS) as 'opus' | 'sonnet' | 'haiku', effort: pick('effort', 1, EFFORTS) as 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
 }
 
 const clock = (ms: number) => {
@@ -202,7 +224,7 @@ async function lead($: EngineInterface, change: (l: Lead) => Lead) {
 }
 
 const rootOf = async ($: EngineInterface) => normal(await $.session.root())
-const isOpen = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
+const isOpen = async ($: EngineInterface, id = PANE) => (await $.ui.panes()).some(p => p.id === id)
 
 // Only the latest call decides, so a slower stale one cannot cancel or restart the timer.
 async function sync($: EngineInterface) {
@@ -377,17 +399,18 @@ async function leadBlock($: EngineInterface, now: number, width: number, Box: an
     ),
   )
   return (
-    <Box flexDirection="column" paddingLeft={1}>
+    <Box flexDirection="column" rowGap="sm" paddingLeft={1}>
       {rows}
     </Box>
   )
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await quiet(async () => void emails.delete(await rootOf($)))
     await $.command.register({ name: 'phase', description: 'Show the main session and the open cycle: phase, running agent and finished phases' })
+    await $.command.register({ name: 'roles', description: 'Pick the model and effort of the reader, writer and reviewer agents' })
     await quiet(async () => {
       const root = await rootOf($)
       const found = await find($, root)
@@ -422,6 +445,61 @@ export const register: Register = on => {
     return { text }
   })
 
+  on('command.run', { command: 'roles' }, async $ => {
+    let text = 'Roles pane opened.'
+    await quiet(async () => {
+      if (await isOpen($, ROLES_PANE)) {
+        text = 'Roles pane closed.'
+        await $.ui.close({ id: ROLES_PANE })
+      } else await $.ui.open({ id: ROLES_PANE, title: 'Roles' })
+    })
+
+    return { text }
+  })
+
+  // One Select per userConfig field. The rows come from `$.config.list()`, so a pick writes the row's own key and the pane shows what the menu holds.
+  on('ui.render', { component: 'Pane', requestId: ROLES_PANE }, async ($, e) => {
+    const { Box, Text, Select } = $.ui.resolve(e)
+    try {
+      const rows = (await $.config.list()).filter(r => r.provider.plugin === $.plugin.name)
+      const row = (f: string) => rows.find(r => r.key.endsWith(`.${f}`))
+      const values: Record<string, ConfigValue> = {}
+      for (const r of rows) values[r.key.slice(r.key.lastIndexOf('.') + 1)] = r.value
+      const change = async (key: string, value: string) => {
+        const { deny } = await $.config.set({ key, value })
+        if (deny) $.ui.toast(deny)
+      }
+      const pick = (f: string) => {
+        const r = row(f)
+        return r?.options ? <Select key={f} label={r.label} options={r.options.map(value => ({ value }))} value={String(r.value)} onSelect={value => bg(change(r.key, value))} /> : undefined
+      }
+      const resolved = (role: string) => {
+        try {
+          const { model, effort } = resolveRole(values, role)
+          return `${role} · ${model} · ${effort}`
+        } catch {
+          return `${role} · ?`
+        }
+      }
+      if (!rows.length) return <Text dimColor>No settings found for this plugin.</Text>
+
+      return (
+        <Box flexDirection="column" rowGap="sm" paddingLeft={1}>
+          {pick('profile')}
+          {AGENTS.map(role => (
+            <Box flexDirection="column">
+              <Text weight="bold">{resolved(role)}</Text>
+              {pick(`${role}_model`)}
+              {pick(`${role}_effort`)}
+            </Box>
+          ))}
+        </Box>
+      )
+    } catch {
+      return <Text dimColor>No settings found for this plugin.</Text>
+    }
+  })
+
   on('ui.close', { id: PANE }, async ($, e, next) => {
     if (e.origin.kind === 'person') await quiet(async () => $.store.delete(`open:${await rootOf($)}`))
     const closed = await next(e)
@@ -431,6 +509,15 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    // Only the plugin's own roles are rewritten; a resolver failure leaves the call as the lead made it.
+    const role = e.tool === 'Agent' ? /^starter:(reader|writer|reviewer)$/.exec(e.subagent_type ?? '')?.[1] : undefined
+    if (e.tool === 'Agent' && role) {
+      try {
+        e = { ...e, ...resolveRole(options, role) }
+      } catch {
+        // pass e through
+      }
+    }
     if (e.tool === 'Agent' && e.effort) remember(efforts, e.tool_use_id, e.effort)
     if (e.agentId) bg(note($, e.agentId, String(e.tool), targetOf(e)))
     else bg(lead($, l => ({ ...l, busy: true, tool: String(e.tool), target: targetOf(e) })))
@@ -620,12 +707,12 @@ export const register: Register = on => {
       // The rail has one `▍` per body line, so every body line stays one row high.
       const card = (...lines: RenderChildren[]) => (
         <Box gap={1} paddingLeft={1}>
-          <Box flexDirection="column" flexShrink={0}>
+          <Box flexDirection="column" rowGap="sm" flexShrink={0}>
             {lines.map(() => (
               <Text mono color="claude">▍</Text>
             ))}
           </Box>
-          <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+          <Box flexDirection="column" rowGap="sm" flexGrow={1} flexShrink={1} minWidth={0}>
             {lines}
           </Box>
         </Box>
@@ -690,7 +777,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" gap={1}>
           {main ? (
-            <Box flexDirection="column">
+            <Box flexDirection="column" rowGap="sm">
               {head}
               {main}
             </Box>
@@ -699,7 +786,7 @@ export const register: Register = on => {
           )}
           {stations}
           {card(...body)}
-          {finished.length > 0 ? <Box flexDirection="column">{finished}</Box> : undefined}
+          {finished.length > 0 ? <Box flexDirection="column" rowGap="sm">{finished}</Box> : undefined}
           {next.length > 0 ? (
             <Box paddingLeft={1}>
               <Text dimColor>{`next: ${next.join(' · ')}`}</Text>

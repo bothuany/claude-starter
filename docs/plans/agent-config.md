@@ -1,7 +1,7 @@
 ---
 cycle: agent-config
 author: rbdikmen@gmail.com
-phase: build
+phase: code-review
 branch: cycle/agent-config
 ---
 
@@ -58,11 +58,11 @@ also sit too close together to read (screenshot from the desktop app: the head b
 
 ## Items
 
-- [ ] 1. Add the seven `userConfig` fields above to `plugins/starter/.claude-plugin/plugin.json`, each with `type:
+- [x] 1. Add the seven `userConfig` fields above to `plugins/starter/.claude-plugin/plugin.json`, each with `type:
   "string"`, `title`, `description`, `default` and `options`; bump `version` to 0.11.0 there and in the
   `README.md:5` badge (text and URL).
   check: `claude plugin validate plugins/starter && node -e "const c=require('./plugins/starter/.claude-plugin/plugin.json');const u=c.userConfig||{};const k=Object.keys(u);if(k.length!==7||c.version!=='0.11.0'||k.some(f=>!u[f].title||!u[f].options))process.exit(1)" && grep -q "version-0.11.0" README.md`
-- [ ] 2. In `register.tsx`: `register` takes `(on, options)`; a `PROFILES` table and a resolver from `options` +
+- [x] 2. In `register.tsx`: `register` takes `(on, options)`; a `PROFILES` table and a resolver from `options` +
   role to `{ model, effort }`; the `tool.call` rewrite for `starter:*` Agent calls, before the `efforts` record.
   Tests (`settings:` prefix, using `test(name, { options }, ...)`): default options give today's values;
   `profile: light` gives haiku/low for reader; `reviewer_model: sonnet` with `profile: max` gives sonnet/medium; a
@@ -72,20 +72,20 @@ also sit too close together to read (screenshot from the desktop app: the head b
   test). The existing test at `register.test.tsx:603-604` (`starter:reader` with `effort: 'max'` expecting `max`) is
   rewritten for "the setting wins".
   check: `out=$(claude plugin test plugins/starter 2>&1) && [ "$(echo "$out" | grep -c '(pass) settings:')" -ge 7 ]`
-- [ ] 3. `/roles` command and pane: Selects for the seven fields, resolved `model · effort` per role, a pick calls
+- [x] 3. `/roles` command and pane: Selects for the seven fields, resolved `model · effort` per role, a pick calls
   `$.config.set` with the listed row's key, a deny shows a toast; `/roles` again closes it. Tests (`roles pane:`
   prefix) mount it on `terminal` and `desktop`, select a value and assert the `config.set` it raised (key and
   value), and a deny raises a toast.
   check: `out=$(claude plugin test plugins/starter 2>&1) && [ "$(echo "$out" | grep -c '(pass) roles pane:')" -ge 3 ]`
-- [ ] 4. /phase spacing: `rowGap="sm"` on the boxes named in the decisions; the rail column matches the body column.
+- [x] 4. /phase spacing: `rowGap="sm"` on the boxes named in the decisions; the rail column matches the body column.
   A test (`spacing:` prefix) asserts the rail and body columns carry the same `rowGap` and the rail's `▍` count still
   equals the body's line count; existing pane snapshot tests are updated, not deleted.
   check: `out=$(claude plugin test plugins/starter 2>&1) && echo "$out" | grep -q '(pass) spacing:'`
-- [ ] 5. Docs: README (one short section: picking a profile, `/config`, `/roles`), `docs/DETAILS.md` (fields,
+- [x] 5. Docs: README (one short section: picking a profile, `/config`, `/roles`), `docs/DETAILS.md` (fields,
   profile table, precedence, the env var fallback) and the plugin.json `description`. Fix the lines that say a role
   fixes its model and effort: `README.md:86`, `docs/DETAILS.md:40`, `docs/DETAILS.md:332`.
   check: `grep -q "/roles" README.md && grep -q "CLAUDE_CODE_SUBAGENT_MODEL" docs/DETAILS.md && grep -qE "^\| *balanced" docs/DETAILS.md && ! grep -q "Each role fixes its model and effort" README.md docs/DETAILS.md`
-- [ ] 6. Script tests pass and no new type errors: `claude plugin validate` exits 0 on type errors, so count them;
+- [x] 6. Script tests pass and no new type errors: `claude plugin validate` exits 0 on type errors, so count them;
   the two in `register.test.tsx` (lines ~979, ~981) are pre-existing and left alone.
   check: `node --test test/scripts.test.mjs && [ "$(claude plugin validate plugins/starter 2>&1 | grep -c 'error TS')" -le 2 ]`
 
@@ -95,3 +95,4 @@ also sit too close together to read (screenshot from the desktop app: the head b
 - plan: 6 items, each with a check; profiles, fields and spacing settled in the decisions
 - plan-review: 10 findings (reviewer); all settled in the plan: command renamed /roles (user), title+type fields, README badge, per-item test prefixes, docs lines, type-error count
 - plan-review: approved by the user
+- build: 6/6 items ticked, every check exit 0 (writer); 56 plugin tests pass, TS error count unchanged at 2
