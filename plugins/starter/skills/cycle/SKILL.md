@@ -7,8 +7,8 @@ disable-model-invocation: true
 
 A cycle is for one piece of work, started by the user. Questions and one-line fixes that come up during a cycle are answered directly, outside it. `$ARGUMENTS` decides what to do:
 
-- **A description of the work:** start a cycle. Pick a short slug, create the work branch `cycle/<slug>` from the current branch, and write `docs/plans/<slug>.md` as the contract below says.
-- **Nothing:** resume. Read the plans in `docs/plans/` that have a `cycle:` key; the one whose `phase` is not `done` is the open cycle (ask which when there are several; say there is none when there are none). Continue at its `phase`. This is how a new session picks a cycle up.
+- **A description of the work:** start a cycle. Pick a short slug, create the work branch `cycle/<slug>` from the current branch, and write `docs/plans/<slug>.md` as the contract below says, with one `author:` line set to the output of `git config user.email`. When that output is empty, stop and ask the user to set `user.email` first: a plan without an author is nobody's cycle.
+- **Nothing:** resume. Run `git config user.email`, then read the plans in `docs/plans/` that have a `cycle:` key and an `author:` equal to it (ignoring letter case); the one whose `phase` is not `done` is the open cycle (ask which when there are several; say there is none when there are none). A plan with another author is a teammate's, one with no `author:` or with two `author:` lines is unmarked: neither is a cycle of yours, so do not resume it and never run its `check:` commands. Say in one line how many you skipped; if an unmarked plan is the user's own, add its `author:` line only after they say so. Continue at the open cycle's `phase`. This is how a new session picks a cycle up.
 - **`off`:** stop. Set `phase: done` and add the log line `- off: stopped at <phase>`.
 
 ## Phases
@@ -28,7 +28,7 @@ Start `writer` and `reviewer` as named roles, never as a fork: a fork inherits t
 
 `docs/plans/<slug>.md`, at most about 150 lines. The pane and the writer read it by these rules.
 
-- **Front matter:** `cycle` (the slug; a file without it is not a cycle plan), `phase`, `branch`, and `waiting: user`. Only the lead edits it.
+- **Front matter:** `cycle` (the slug; a file without it is not a cycle plan), `author` (the git email of whoever started it: the cycle is theirs, and its checks run only for them), `phase`, `branch`, and `waiting: user`. Only the lead edits it.
 - **`phase`** is one of `gather`, `plan`, `plan-review`, `build`, `code-review`, `probe`, `done`. The pane shows the first six as stations and `n/6`, where n is the position of the current phase; `done` shows 6/6, all filled.
 - **`waiting: user`** sits on the current phase while it cannot finish without the user's answer: after the reviewer's pass in `plan-review`, or wherever a decision is needed. The lead sets it, and removes it once the user has answered.
 - **`## Items`:** one line `- [ ] N. <text>` per item; the text may continue on indented lines. The item's check is the first indented line that starts with `check:` before the next item. The command is what follows `check:`, with one pair of surrounding backticks removed. It runs in bash from the repository root and passes when it exits 0.

@@ -34,7 +34,7 @@ Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the O
 
 | Piece | Kind | What it does |
 |---|---|---|
-| **Working rules** | `SessionStart` hook, 450 words per session | Short rules: ask before assuming, check the docs, route web research, delegate wide reading, verify before saying done ([read them](plugins/starter/rules.md)) |
+| **Working rules** | `SessionStart` hook, 410 words per session | Short rules: ask before assuming, check the docs, delegate wide reading, verify before saying done ([read them](plugins/starter/rules.md)) |
 | **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping; a change that is not risky gets a one-line answer |
 | **`cycle`** | Skill (you run it) | Runs one piece of work through gather, plan, plan review, build, code review and probe, handing off through a plan file; off unless you start it |
 | **Role agents** | `reader` (Sonnet, medium), `writer` (Sonnet, high), `reviewer` (Opus, medium) | Each role fixes its model and effort; they are started by name and start clean |
@@ -57,7 +57,7 @@ claude plugin install starter@claude-starter
 The rules and the review gate work from the next session; nothing is written to your CLAUDE.md. Optionally, run `/starter:setup` in a session. It shows each change and asks before making it:
 
 - **Old rules block:** versions before 0.8 copied the rules into `~/.claude/CLAUDE.md`. Setup removes that copy (with a timestamped backup); until then the plugin holds its own copy back, so the rules never load twice.
-- **Optional add-ons** (all off unless you say yes): context7, obscura, i-have-adhd and ponytail. See [below](#optional-add-ons).
+- **Optional add-ons** (all off unless you say yes): context7, i-have-adhd and ponytail. See [below](#optional-add-ons).
 - **The rules and the review gate:** both on by default; turn either off here if you prefer.
 
 New MCP servers show up after a restart.
@@ -85,7 +85,6 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 
 - **Ask before assuming.** If a request is ambiguous in a way that changes the result, ask, at most 4 questions with a recommended option first. Don't ask what you can look up.
 - **Check the docs, not memory.** Look up a third-party API before writing against it (context7, or the official docs), and say which version you checked.
-- **Web research.** Use obscura first when it's connected; fall back to WebSearch and WebFetch, and say so.
 - **Delegate wide reading.** Reading across about 10 or more files goes to `reader`, which returns conclusions, not file dumps. Work that must start clean goes to a named role, never to a fork.
 - **Verify before you say done.** Run the project's tests, type check and lint, and report failures word for word. Get a failing test or command before you fix a bug. Send risky changes (network, permissions, stored data) to the `reviewer`; a change that is not risky needs the project's checks and one line saying so. Every finding needs evidence, a finding that is one of a class is fixed in every instance, and after three review rounds on one change the lead asks you whether the approach is right. Say plainly what wasn't verified.
 
@@ -106,7 +105,8 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 
 The plan file is `docs/plans/<slug>.md`, at most about 150 lines. The skill, the writer and the `/phase` pane read it by one contract:
 
-- **Front matter:** `cycle` (the slug; a file without it is not a cycle plan), `phase`, `branch`, and `waiting: user`. Only the lead edits it.
+- **Front matter:** `cycle` (the slug; a file without it is not a cycle plan), `author` (the git email of whoever started it), `phase`, `branch`, and `waiting: user`. Only the lead edits it.
+- **Whose plan it is:** a plan is your cycle only when its `author` equals your `git config user.email` (letter case ignored). A teammate's plan, or one with no `author`, is not resumed, not shown in `/phase`, and its `check:` commands are never run by the writer. Two `author` lines count as none, and with no git email configured no plan is yours. This guards against running the wrong plan by mistake; it is not a security boundary, since `author` is plain text a pull request can set to your email.
 - **`phase`** is one of `gather`, `plan`, `plan-review`, `build`, `code-review`, `probe`, `done`. `waiting: user` sits on the current phase while it cannot finish without your answer.
 - **`## Items`:** one line `- [ ] N. <text>` per item. The check is the first indented line starting with `check:`; its command (one pair of backticks removed) runs in bash from the repository root and passes when it exits 0.
 - **`## Log`:** the lead adds one line `- <phase>: <evidence>` each time it moves the phase on.
@@ -201,12 +201,11 @@ At session start the starter adds only its rules to the context. When something 
 
 ## Optional add-ons
 
-All four are offered by `/starter:setup`, and none is installed without a yes.
+All three are offered by `/starter:setup`, and none is installed without a yes.
 
 | Add-on | What it brings | What it costs |
 |---|---|---|
 | [**context7**](https://github.com/upstash/context7) | Current library documentation as an MCP server, no key needed | Tool schemas, loaded on demand. Sends library names and topics to context7.com, so check that's allowed on a work machine |
-| [**obscura**](https://github.com/h4ckf0r0day/obscura) | A local headless browser for web research, used before WebSearch/WebFetch | Install the binary yourself: the normal build from its releases page, not a `-stealth` build, on PATH. Then run setup |
 | [**i-have-adhd**](https://github.com/ayghri/i-have-adhd) | A separate third-party plugin (MIT, pinned to v0.4.1) that shapes answers: next action first, numbered steps, no tangents | A SessionStart hook adds its instructions to every session |
 | [**ponytail**](https://github.com/DietrichGebert/ponytail) | A separate third-party plugin (MIT, pinned to v5.3.3), "the laziest senior dev in the room": reuse what the repo has, standard library first, the smallest code that works, never cutting validation, security or tests. Adds `/ponytail-review`, `/ponytail-audit` and a cost band above the prompt | Its instructions load into every session through its own hooks. After each turn it writes a row (cost, tokens, tests) to `~/.config/ponytail/band/` on your machine; nothing leaves unless you set its webhook |
 
@@ -321,7 +320,7 @@ The rules were rewritten in 0.10 too; the review-gate and rule-following numbers
 
 | | In every session |
 |---|---|
-| Rules, injected at session start | 450 words (`wc -w` of `rules.md`); roughly 600 tokens, an estimate, not counted with a tokenizer |
+| Rules, injected at session start | 410 words (`wc -w` of `rules.md`); roughly 550 tokens, an estimate, not counted with a tokenizer |
 | The role agents' descriptions and `visual-plan`'s description | not measured |
 | Other hooks (session check, review gate) | 0, until the gate blocks |
 | `setup`, `cycle`, `clean-worktrees`, `monthly-review` | 0 (user-only skills) |
@@ -378,7 +377,6 @@ Removed in 0.10, with its skill and its workflow. On the small plan, fan-out wit
 - The starter itself collects nothing and sends nothing.
 - context7, if you add it, sends library names and topics to [context7.com](https://context7.com).
 - ponytail, if you add it, keeps its task log on your machine unless you set its webhook.
-- obscura runs locally.
 
 ## Uninstall
 
@@ -390,7 +388,7 @@ Then undo what setup wrote, if you want it gone. If you use `CLAUDE_CONFIG_DIR`,
 
 - If you used a version before 0.8 and never ran setup since, delete the block between `claude-starter:begin` and `claude-starter:end` in `~/.claude/CLAUDE.md`.
 - If an older version of setup set `worktree.baseRef` (before 0.10), remove it from the project's `.claude/settings.local.json` or from `~/.claude/settings.json`.
-- If setup added them, run `claude mcp remove --scope user obscura` and `claude mcp remove --scope user context7`.
+- If setup added them, run `claude mcp remove --scope user context7`; an older version of setup could also add obscura, remove it with `claude mcp remove --scope user obscura`.
 - If you added them, run `claude plugin uninstall i-have-adhd@claude-starter` and `claude plugin uninstall ponytail@claude-starter`.
 - Delete the `*.starter-backup` files.
 

@@ -1,6 +1,6 @@
 ---
 name: setup
-description: Configure claude-starter's pieces that a plugin can't ship itself - the optional context7 and obscura MCP servers and the optional i-have-adhd and ponytail plugins - and turn the working rules or the review gate on or off, after showing exactly what will change. Also removes the old copy of the rules that versions before 0.8 wrote into ~/.claude/CLAUDE.md. Run with "check" to only report the current state, or with "skip" / "unskip" to stop or resume the per-project reminders about REVIEW.md and claude-code-setup.
+description: Configure claude-starter's pieces that a plugin can't ship itself - the optional context7 MCP server and the optional i-have-adhd and ponytail plugins - and turn the working rules or the review gate on or off, after showing exactly what will change. Also removes the old copy of the rules that versions before 0.8 wrote into ~/.claude/CLAUDE.md. Run with "check" to only report the current state, or with "skip" / "unskip" to stop or resume the per-project reminders about REVIEW.md and claude-code-setup.
 disable-model-invocation: true
 argument-hint: "[check | skip review-md|project-setup | unskip review-md|project-setup]"
 ---
@@ -13,16 +13,15 @@ At session start the plugin reminds, once a day per project, when the project ha
 
 ## 1. Check
 
-Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" check --data "${CLAUDE_PLUGIN_DATA}"` and summarize it in one short table: Node version, rules (on / off), old rules block in CLAUDE.md (none / present / broken), context7 registered, obscura (binary found, MCP registered), i-have-adhd installed, ponytail installed, review gate on or off, and the two project reminders (`projectReminders`: `review-md` and `project-setup`, each unknown / done / declined for this project, plus whether claude-code-setup is installed).
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" check --data "${CLAUDE_PLUGIN_DATA}"` and summarize it in one short table: Node version, rules (on / off), old rules block in CLAUDE.md (none / present / broken), context7 registered, i-have-adhd installed, ponytail installed, review gate on or off, and the two project reminders (`projectReminders`: `review-md` and `project-setup`, each unknown / done / declined for this project, plus whether claude-code-setup is installed).
 
 If `$ARGUMENTS` is `check`, stop here.
 
 ## 2. Show the plan
 
-- **Rules** (on by default). The plugin's SessionStart hook puts `${CLAUDE_PLUGIN_ROOT}/rules.md` into every session's context (450 words); nothing is written to CLAUDE.md. Show the text when the user asks or when they are off. If the user's own CLAUDE.md already says the same things, point out the overlap: they may prefer to turn the rules off or trim their own lines.
+- **Rules** (on by default). The plugin's SessionStart hook puts `${CLAUDE_PLUGIN_ROOT}/rules.md` into every session's context (about 410 words); nothing is written to CLAUDE.md. Show the text when the user asks or when they are off. If the user's own CLAUDE.md already says the same things, point out the overlap: they may prefer to turn the rules off or trim their own lines.
 - **Old rules block.** When it is **present**, the hook holds the rules back so they don't load twice: offer to remove it. Only the marked block goes, the rest of CLAUDE.md stays, and the old file is kept as a timestamped `CLAUDE.md.<time>.starter-backup`. When it is **broken** (unbalanced or out-of-order markers), the script won't touch the file: show the user the marker lines and ask them to delete the old block by hand.
 - **context7** (optional). An MCP server with current library documentation ([upstash/context7](https://github.com/upstash/context7)), keyless, added at user scope. It sends library names and topics to context7.com: on a work machine, check that this is allowed. Offer it only if no `context7` server is registered yet.
-- **obscura** (optional). A local headless browser with an MCP server ([h4ckf0r0day/obscura](https://github.com/h4ckf0r0day/obscura)). If the binary was found, offer to register it at user scope. If not, say how to get it: download the normal build for the OS from its releases page (not a `-stealth` build: that one is made to evade bot detection) and put it on PATH, then run `/starter:setup` again. Without it, WebSearch and WebFetch are used.
 - **Review gate** (on by default). A `Stop` hook: when this session changed 2+ hand-written code files (15+ lines) or 50+ such lines since the last review and `code-review` hasn't run, it asks Claude once to run it before stopping. Tests, docs, lockfiles, build output, pure renames and whitespace don't count. It adds a turn and some cost on larger changes; Sonnet skipped the review rule without it. Offer to turn it off only if the user asks or prefers fewer stops; `CLAUDE_STARTER_REVIEW_GATE=off` in settings `env` also works.
 - **i-have-adhd** (optional, third party: [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd), MIT, pinned to v0.4.1). Output shaping: answers lead with the next action, numbered steps, no tangents. It adds its own skill and a SessionStart hook that puts its instructions into every session. Offer it only if it isn't installed.
 - **ponytail** (optional, third party: [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail), MIT, pinned to v5.3.3). "Lazy senior dev" mode: reuse what the repo already has, standard library first, the smallest code that works, never cutting validation, security or tests. Say plainly what it adds:
@@ -39,18 +38,17 @@ Use AskUserQuestion, one question per item that would change something (skip ite
 
 1. Old rules block: remove (only when present).
 2. context7: register / skip.
-3. obscura: register / skip (only when the binary was found).
-4. i-have-adhd: install / skip.
-5. ponytail: install / skip.
-6. Rules: keep on / turn off (only if the user raised it, or they are off: then turn on / keep off).
-7. Review gate: keep on / turn off (only if the user raised it, or it is currently off: then turn on / keep off).
+3. i-have-adhd: install / skip.
+4. ponytail: install / skip.
+5. Rules: keep on / turn off (only if the user raised it, or they are off: then turn on / keep off).
+6. Review gate: keep on / turn off (only if the user raised it, or it is currently off: then turn on / keep off).
 
 ## 4. Apply
 
 Build one command with a flag for each answer, and run it when there is at least one flag:
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" apply [--remove-old-rules] [--rules on|off] [--context7] [--obscura] [--review-gate on|off] --data "${CLAUDE_PLUGIN_DATA}"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" apply [--remove-old-rules] [--rules on|off] [--context7] [--review-gate on|off] --data "${CLAUDE_PLUGIN_DATA}"
 ```
 
 For i-have-adhd, run `claude plugin install i-have-adhd@claude-starter`. For ponytail, run `claude plugin install ponytail@claude-starter`; it takes effect in the next session.

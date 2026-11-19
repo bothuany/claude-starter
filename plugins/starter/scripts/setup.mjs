@@ -4,16 +4,15 @@
 // hook injects them.
 //
 //   node setup.mjs check [--data <plugin data dir>]   report what is installed, as JSON
-//   node setup.mjs apply [--rules on|off] [--remove-old-rules] [--context7] [--obscura] [--review-gate on|off]
+//   node setup.mjs apply [--rules on|off] [--remove-old-rules] [--context7] [--review-gate on|off]
 //                        [--data <plugin data dir>]
 //   node setup.mjs skip|unskip review-md|project-setup --data <plugin data dir>   stop or resume asking about it in this project
 //
-// It writes flags in the plugin's data dir (rules off, review gate off), user-scope MCP servers (context7, obscura)
+// It writes flags in the plugin's data dir (rules off, review gate off), the user-scope context7 MCP server
 // through `claude mcp add`, and removes the old marked copy of the rules (versions before 0.8) from the user's
 // CLAUDE.md. Files it changes are backed up next to themselves first, with a timestamp, so no backup
 // is ever overwritten. An old block with unbalanced or out-of-order markers is reported and left alone.
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { claudeMd, configDir, findBlock, oldBlockState, rulesOff } from './rules-block.mjs'
@@ -64,18 +63,6 @@ function onPath(name) {
   return lookup.status === 0 ? (lookup.stdout ?? '').trim().split(/\r?\n/).filter(Boolean) : []
 }
 
-// The obscura binary, from PATH or the usual install folders; '' when it isn't installed.
-function findObscura() {
-  const found = onPath('obscura')[0]
-  if (found) {
-    return found
-  }
-  const candidates = isWin
-    ? [join(process.env.LOCALAPPDATA || '', 'obscura', 'obscura.exe')]
-    : [join(homedir(), '.local', 'bin', 'obscura'), '/usr/local/bin/obscura', '/opt/homebrew/bin/obscura']
-  return candidates.find(path => existsSync(path)) || ''
-}
-
 // The native installer puts claude.exe on PATH, which runs without a shell. An npm install on Windows only has a
 // claude.cmd shim, which needs cmd.exe, so there every argument is quoted (paths may contain spaces).
 function claude(args) {
@@ -119,8 +106,6 @@ function check(dataDir) {
     rules: rulesOff(dataDir) ? 'off' : 'on',
     oldRulesBlock: oldBlockState(),
     context7Mcp: mcpRegistered('context7'),
-    obscuraBinary: findObscura() || null,
-    obscuraMcp: mcpRegistered('obscura'),
     iHaveAdhd: pluginEnabled('i-have-adhd'),
     ponytail: pluginEnabled('ponytail'),
     reviewGate: dataDir && gateOff(dataDir) ? 'off' : 'on',
@@ -183,17 +168,6 @@ function apply(options) {
     }
   }
 
-  if (options.obscura) {
-    const binary = findObscura()
-    if (!binary) {
-      done.push('obscura not found on this machine: skipped (WebSearch/WebFetch stay the fallback)')
-    } else if (mcpRegistered('obscura')) {
-      done.push('obscura MCP already registered')
-    } else {
-      const add = claude(['mcp', 'add', '-s', 'user', 'obscura', '--', binary, 'mcp'])
-      done.push(add.status === 0 ? `obscura MCP registered (user scope): ${binary} mcp` : `obscura MCP registration failed: ${failure(add)}`)
-    }
-  }
   return done.length ? done : ['nothing to change']
 }
 
@@ -221,7 +195,7 @@ if (command === 'check') {
     console.error('--review-gate needs --data <plugin data dir>')
     process.exit(1)
   }
-  const options = { rules, removeOldRules: rest.includes('--remove-old-rules'), context7: rest.includes('--context7'), obscura: rest.includes('--obscura'), reviewGate, dataDir }
+  const options = { rules, removeOldRules: rest.includes('--remove-old-rules'), context7: rest.includes('--context7'), reviewGate, dataDir }
   for (const line of apply(options)) {
     console.log(line)
   }
@@ -240,6 +214,6 @@ if (command === 'check') {
   }
   console.log(command === 'skip' ? `${step}: declined for ${project.root} (and its worktrees)` : `${step}: back to unknown for ${project.root} (and its worktrees)`)
 } else {
-  console.error('usage: setup.mjs check [--data <dir>] | skip|unskip review-md|project-setup --data <dir> | apply [--rules on|off] [--remove-old-rules] [--context7] [--obscura] [--review-gate on|off] [--data <dir>]')
+  console.error('usage: setup.mjs check [--data <dir>] | skip|unskip review-md|project-setup --data <dir> | apply [--rules on|off] [--remove-old-rules] [--context7] [--review-gate on|off] [--data <dir>]')
   process.exit(1)
 }

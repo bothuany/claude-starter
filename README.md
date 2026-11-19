@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews risky changes, and gives a piece of work a named cycle: a plan file, a clean-context build, and reviews that start fresh.
 
-[![version 0.10.1](https://img.shields.io/badge/version-0.10.1-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.10.2](https://img.shields.io/badge/version-0.10.2-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -73,7 +73,7 @@ The cycle is off by default. You start it for one piece of work with `/starter:c
 
 Two things work in every session, with no cycle started:
 
-- **The rules**, about 450 words injected at session start: ask before assuming, check the docs, route web research, delegate wide reading to `reader`, and verify before saying done. A failing test or command comes before a bug fix, every review finding needs evidence, and after three review rounds on one change the lead asks you whether the approach is right. [Read them](plugins/starter/rules.md).
+- **The rules**, about 410 words injected at session start: ask before assuming, check the docs, delegate wide reading to `reader`, and verify before saying done. A failing test or command comes before a bug fix, every review finding needs evidence, and after three review rounds on one change the lead asks you whether the approach is right. [Read them](plugins/starter/rules.md).
 - **The review gate**, a `Stop` hook. If the session changed enough code and no review ran, it asks for one, once. When the change is not risky (no network, permissions or stored data), Claude says so in one line and stops.
 
 ## What's inside
@@ -90,7 +90,7 @@ Two things work in every session, with no cycle started:
 | `/starter:review-setup` | Reads your repo and drafts a short `REVIEW.md`: what failure looks like here, what is risky, what to skip |
 | `/starter:clean-worktrees` | Removes clean, merged worktrees and branches, never through a symlink into your checkout |
 | `/starter:monthly-review` | Checks `/insights` against your setup, applies at most two changes, prunes stale memory |
-| `/starter:setup` | Optional add-ons (context7, obscura, i-have-adhd, ponytail) and turning the rules or the gate off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip project-setup` |
+| `/starter:setup` | Optional add-ons (context7, i-have-adhd, ponytail) and turning the rules or the gate off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip project-setup` |
 
 ## Turn things off
 

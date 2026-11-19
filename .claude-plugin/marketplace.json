@@ -7,7 +7,7 @@
     {
       "name": "starter",
       "source": "./plugins/starter",
-      "description": "Working rules, a review gate, an opt-in plan-file cycle with role agents, safe worktree cleanup, a monthly review; context7 and obscura MCP offered by setup."
+      "description": "Working rules, a review gate, an opt-in plan-file cycle with role agents, safe worktree cleanup, a monthly review; context7 MCP offered by setup."
     },
     {
       "name": "i-have-adhd",

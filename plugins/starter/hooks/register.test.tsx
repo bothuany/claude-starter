@@ -39,7 +39,7 @@ const logFor = (phase: string) => PHASES.slice(0, PHASES.indexOf(phase)).map(p =
 const planText = (front: Record<string, string> = {}, items = ITEMS, log = logFor(front.phase ?? 'build')) =>
   [
     '---',
-    ...Object.entries({ cycle: 'rate-limiter', phase: 'build', branch: 'cycle/rate-limiter', ...front }).map(([k, v]) => `${k}: ${v}`),
+    ...Object.entries({ cycle: 'rate-limiter', author: 'me@example.com', phase: 'build', branch: 'cycle/rate-limiter', ...front }).map(([k, v]) => `${k}: ${v}`),
     '---',
     '',
     '# Rate limiter',
@@ -90,7 +90,9 @@ function world(on: On, entries: Record<string, unknown> = {}, root = ROOT, withC
   const reads: string[] = []
   const panes: string[] = []
   const where = { root }
+  const who = { email: 'Me@Example.com', calls: 0 }
   on('session.root', () => ({ value: where.root }))
+  on('process.run', () => (who.calls++, { value: { exitCode: who.email ? 0 : 1, stdout: `${who.email}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('fs.read', (_, e) => {
     const path = norm(e.path)
     reads.push(path)
@@ -126,7 +128,7 @@ function world(on: On, entries: Record<string, unknown> = {}, root = ROOT, withC
     return { result: {} }
   })
   files.set(PLAN, planText())
-  return { time: time!, files, definitions, unreadable, panes, store, broken, reads, where, call: () => seen.call }
+  return { time: time!, files, definitions, unreadable, panes, store, broken, reads, where, who, call: () => seen.call }
 }
 
 async function start($: Engine, time: ReturnType<typeof mock.clock>) {
@@ -225,6 +227,49 @@ test('a plan without a cycle key is no cycle plan: it is not shown, its stored k
   await $.tool.call(edit('C:\\work\\proj\\docs\\plans\\notes.md'))
   await $.tool.call(edit('C:\\work\\proj\\docs\\plans\\rate-limiter.md'))
   expect(panes).toEqual([])
+  expect(await texts($)).toEqual([NONE])
+})
+
+test("a teammate's plan, an unmarked one, or any plan when git has no email is not a cycle of this user: not found, not adopted", async ($, on) => {
+  const w = world(on, { open: false })
+  w.files.clear()
+  w.files.set(`${PLANS}/team.md`, planText({ cycle: 'team', author: 'someone@else.com' }))
+  w.files.set(`${PLANS}/old.md`, planText({ cycle: 'old' }).replace('author: me@example.com\n', ''))
+  await start($, w.time)
+  expect(await texts($)).toEqual([NONE])
+
+  await $.tool.call(edit('C:\\work\\proj\\docs\\plans\\team.md'))
+  await $.tool.call(edit('C:\\work\\proj\\docs\\plans\\old.md'))
+  expect(w.panes).toEqual([])
+  expect(w.store.has(`plan:c:/work/proj`)).toBe(false)
+
+  // Her own plan, whatever the letter case of the author line, is found.
+  w.files.set(`${PLANS}/mine.md`, planText({ cycle: 'mine', author: 'ME@example.COM' }))
+  await start($, w.time)
+  expect((await texts($))[0]).toBe('mine')
+
+  // No email configured: nothing is hers, and git is asked once however many plans there are.
+  w.who.email = ''
+  w.who.calls = 0
+  for (let i = 0; i < 20; i++) w.files.set(`${PLANS}/t${i}.md`, planText({ cycle: `t${i}`, author: 'someone@else.com' }))
+  await start($, w.time)
+  expect(await texts($)).toEqual([NONE])
+  expect(w.who.calls).toBe(1)
+})
+
+test('two author lines are nobody\'s, and a plan on screen goes when it stops being hers', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN, open: false })
+  w.files.set(PLAN, planText().replace('author: me@example.com\n', 'author: someone@else.com\nauthor: me@example.com\n'))
+  await start($, w.time)
+  expect(await texts($)).toEqual([NONE])
+
+  w.files.set(PLAN, planText())
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  expect((await texts($))[0]).toBe('rate-limiter')
+
+  // The file changes under the same path, as a branch switch or a pull does: the pane lets go of it.
+  w.files.set(PLAN, planText({ author: 'someone@else.com' }))
+  await $.turn.start({ text: 'go', turnId: 't2' })
   expect(await texts($)).toEqual([NONE])
 })
 

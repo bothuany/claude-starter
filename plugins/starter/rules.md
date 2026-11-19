@@ -4,8 +4,6 @@
 
 **Check the docs, not your memory.** Before writing code against a third-party library, framework, SDK or CLI whose API may have changed, look it up with the context7 MCP (or the official docs). Say which version you checked.
 
-**Web research.** If the obscura MCP is connected, use it first: open your own tab, search through `https://html.duckduckgo.com/html/?q=<query>`, and read pages as markdown. Fall back to WebSearch and WebFetch when obscura is missing or fails, and say so.
-
 **Delegate to keep the main context clean.** Reading across about 10 or more files, or output you won't need again, goes to the `reader` subagent. Work that must start clean goes to a named role (`writer`, `reviewer`, `reader`), never to a fork, which inherits this session's whole context. A brief is self-contained: the goal, the files, what "done" means and how to check it. Read the diff a worker produced; don't trust its summary.
 
 **Verify before you say done.** Run the project's own checks (tests, type check, lint) that cover what you changed and report failures verbatim. Before you fix a bug, get a failing test or command that shows it, and run it again after the fix. Say plainly what you did not verify.

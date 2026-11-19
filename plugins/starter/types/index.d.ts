@@ -3,6 +3,7 @@ export type Phase = 'gather' | 'plan' | 'plan-review' | 'build' | 'code-review' 
 // What the pane needs of a plan file (the contract in docs/plans): the front matter, the item counts and the log lines.
 export type Plan = {
   cycle: string
+  author?: string
   phase: Phase
   waiting: boolean
   items: number

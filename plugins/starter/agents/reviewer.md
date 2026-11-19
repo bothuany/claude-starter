@@ -13,6 +13,7 @@ You check a plan or a change you did not write. You change no files.
 - Reproduce a finding before you assert it when a command can show it, and give the command and its output.
 - When a finding is one of a class, list every instance of it in the change, so the writer fixes the whole class and not only the one you saw.
 - A bug the change did not introduce is reported as pre-existing and left alone.
+- Run a command from a plan file (a `check:` line) only when the plan's single `author:` equals `git config user.email` (ignoring letter case), in every pass, plan-review included.
 - Start the summary with the count of findings. When there is nothing to fix, say so plainly.
 
 ## Code change
@@ -23,6 +24,7 @@ Call the `code-review` skill on the given range when it is available, at the eff
 
 When you are given a plan file (a `docs/plans/<slug>.md` with a `cycle:` key), do a plan-review and do not call the `code-review` skill. One pass, no style comments:
 
+- The front matter has one `author:` that equals `git config user.email` (ignoring letter case). When it does not, report it as needs-decision.
 - Every item has a `check:` command that can run from the repository root and that tests the item, not something near it.
 - The plan agrees with the code it names: the files, lines and functions it mentions exist and say what the plan says.
 - Nothing the goal needs is missing, and no two items contradict each other.

@@ -4,7 +4,7 @@ import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-co
 import type { Agent, Cycle, Lead, Plan } from '../types'
 
 const PANE = 'phase'
-const cycleAtom = atom({ plugin: 'starter', key: 'cycle' } as const, null, { shape: 'cycle-1' })
+const cycleAtom = atom({ plugin: 'starter', key: 'cycle' } as const, null, { shape: 'cycle-2' })
 const agentsAtom = atom({ plugin: 'starter', key: 'agents' } as const, [], { shape: 'agents-1' })
 const leadAtom = atom({ plugin: 'starter', key: 'lead' } as const, { busy: false }, { shape: 'lead-1' })
 
@@ -83,13 +83,18 @@ const parsePlan = (text: string): Plan | undefined => {
   const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---')
   if (lines[0]?.trim() !== '---' || end < 0) return undefined
   const front: Record<string, string> = {}
+  let twice = false
   for (const line of lines.slice(1, end)) {
     const m = /^(\w+):\s*(.*?)\s*$/.exec(line)
-    if (m) front[m[1]!] = m[2]!.replace(/^(["'])(.*)\1$/, '$2')
+    if (!m) continue
+    twice ||= m[1] === 'author' && 'author' in front
+    front[m[1]!] = m[2]!.replace(/^(["'])(.*)\1$/, '$2')
   }
+  // Two `author` lines are not one author: the plan is nobody's.
+  if (twice) delete front.author
   const phase = front.phase
   if (!front.cycle || !(phase === 'done' || PHASES.some(p => p === phase))) return undefined
-  const plan: Plan = { cycle: front.cycle, phase: phase as Plan['phase'], waiting: front.waiting === 'user', items: 0, ticked: 0, log: [] }
+  const plan: Plan = { cycle: front.cycle, author: front.author?.toLowerCase(), phase: phase as Plan['phase'], waiting: front.waiting === 'user', items: 0, ticked: 0, log: [] }
   let section = ''
   let fence: string | undefined
   for (const line of lines.slice(end + 1)) {
@@ -219,9 +224,26 @@ async function sync($: EngineInterface) {
   }
 }
 
-async function load($: EngineInterface, path: string) {
+// The git email of whoever works in a root, lower-case; '' when git has none. Kept per root until the session starts again,
+// a failed lookup too, so a missing email costs one git call and not one per plan file.
+const emails = new Map<string, string>()
+async function me($: EngineInterface) {
+  const root = await rootOf($)
+  const kept = emails.get(root)
+  if (kept !== undefined) return kept
+  const out = await maybe(() => $.process.run(['git', 'config', 'user.email'], { cwd: root, timeoutMs: 5000 }))
+  const found = out?.exitCode === 0 ? out.stdout.trim().toLowerCase() : ''
+  emails.set(root, found)
+  return found
+}
+
+// A cycle plan, `null` when it is not this user's (its `author` is another's, repeated or missing: a teammate's or an unmarked
+// file), `undefined` when it cannot be read or is no cycle plan. A `null` plan is never found or adopted, and one on screen goes.
+async function load($: EngineInterface, path: string): Promise<Plan | null | undefined> {
   try {
-    return parsePlan(await $.fs.read(path))
+    const plan = parsePlan(await $.fs.read(path))
+    if (!plan) return undefined
+    return plan.author && plan.author === (await me($)) ? plan : null
   } catch {
     return undefined
   }
@@ -264,6 +286,7 @@ async function refresh($: EngineInterface) {
     const open = await read($, cycleAtom)
     const plan = open && (await load($, open.path))
     if (open && plan) await update($, cycleAtom, (): Cycle => ({ path: open.path, plan }))
+    else if (open && plan === null) await update($, cycleAtom, (): Cycle | null => null)
   })
 }
 
@@ -287,8 +310,9 @@ async function openPane($: EngineInterface, root: string) {
 // Only a plan that becomes the open cycle opens the pane by itself: later edits never reopen a pane the person closed.
 async function adopt($: EngineInterface, root: string, path: string) {
   const plan = await load($, path)
-  if (!plan) return
   const open = await read($, cycleAtom)
+  if (plan === null && open?.path === path) await update($, cycleAtom, (): Cycle | null => null)
+  if (!plan) return
   if (plan.phase === 'done' && open?.path !== path) return
   await update($, cycleAtom, (): Cycle => ({ path, plan }))
   if (plan.phase === 'done') return
@@ -362,6 +386,7 @@ async function leadBlock($: EngineInterface, now: number, width: number, Box: an
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
+    await quiet(async () => void emails.delete(await rootOf($)))
     await $.command.register({ name: 'phase', description: 'Show the main session and the open cycle: phase, running agent and finished phases' })
     await quiet(async () => {
       const root = await rootOf($)
