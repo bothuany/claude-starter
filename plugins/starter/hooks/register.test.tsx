@@ -90,9 +90,9 @@ function world(on: On, entries: Record<string, unknown> = {}, root = ROOT, withC
   const reads: string[] = []
   const panes: string[] = []
   const where = { root }
-  const who = { email: 'Me@Example.com', calls: 0 }
+  const who = { email: 'Me@Example.com', calls: 0, init: undefined as { cwd?: string; timeoutMs?: number } | undefined }
   on('session.root', () => ({ value: where.root }))
-  on('process.run', () => (who.calls++, { value: { exitCode: who.email ? 0 : 1, stdout: `${who.email}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('process.run', (_, e) => (who.calls++, who.init = e.init, { value: { exitCode: who.email ? 0 : 1, stdout: `${who.email}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('fs.read', (_, e) => {
     const path = norm(e.path)
     reads.push(path)
@@ -255,6 +255,31 @@ test("a teammate's plan, an unmarked one, or any plan when git has no email is n
   await start($, w.time)
   expect(await texts($)).toEqual([NONE])
   expect(w.who.calls).toBe(1)
+})
+
+test('git is asked in the project root with a short timeout, once per root', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN, open: false })
+  await start($, w.time)
+  expect((await texts($))[0]).toBe('rate-limiter')
+  expect(w.who.init).toEqual({ cwd: 'c:/work/proj', timeoutMs: 5000 })
+  expect(w.who.calls).toBe(1)
+
+  // Another root is another repository: its email is asked for on its own.
+  w.where.root = 'C:\\work\\other'
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await w.time.settle()
+  expect(w.who.calls).toBe(2)
+  expect(w.who.init?.cwd).toBe('c:/work/other')
+})
+
+test('an edit that makes the open plan a teammate\'s drops it at once', async ($, on) => {
+  const w = world(on, { [KEY]: PLAN, open: false })
+  await start($, w.time)
+  expect((await texts($))[0]).toBe('rate-limiter')
+
+  w.files.set(PLAN, planText({ author: 'someone@else.com' }))
+  await $.tool.call(edit('C:\\work\\proj\\docs\\plans\\rate-limiter.md'))
+  expect(await texts($)).toEqual([NONE])
 })
 
 test('two author lines are nobody\'s, and a plan on screen goes when it stops being hers', async ($, on) => {
