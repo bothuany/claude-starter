@@ -1,11 +1,62 @@
 {
   "name": "starter",
   "displayName": "claude-starter",
-  "version": "0.10.2",
-  "description": "A small, opinionated user-level setup: ask-before-assuming and verify-before-done rules injected at session start, a review gate, an opt-in cycle (gather, plan, plan review, build, code review, probe) that hands off through a plan file to role agents that fix model and effort (reader, writer, reviewer), a /phase pane, a visual-plan skill, safe worktree cleanup, and a monthly review with optional context7 MCP server.",
+  "version": "0.11.0",
+  "description": "A small, opinionated user-level setup: ask-before-assuming and verify-before-done rules injected at session start, a review gate, an opt-in cycle (gather, plan, plan review, build, code review, probe) that hands off through a plan file to role agents (reader, writer, reviewer) whose model and effort you choose with a profile in /config, a /phase pane, a visual-plan skill, safe worktree cleanup, and a monthly review with optional context7 MCP server.",
   "author": { "name": "Batuhan Dikmen", "url": "https://github.com/bothuany" },
   "repository": "https://github.com/bothuany/claude-starter",
   "license": "MIT",
   "types": "./types/index.d.ts",
-  "keywords": ["workflow", "plan", "review", "subagents", "worktrees", "starter"]
+  "keywords": ["workflow", "plan", "review", "subagents", "worktrees", "starter"],
+  "userConfig": {
+    "profile": {
+      "type": "string",
+      "title": "Agent profile",
+      "description": "Model and effort of the reader, writer and reviewer agents: max (sonnet/opus, as the plugin ships), balanced, or light (cheaper). A role field below set to anything but \"profile\" wins.",
+      "default": "max",
+      "options": ["max", "balanced", "light"]
+    },
+    "reader_model": {
+      "type": "string",
+      "title": "Reader model",
+      "description": "Model of the reader agent; \"profile\" takes it from the profile.",
+      "default": "profile",
+      "options": ["profile", "opus", "sonnet", "haiku"]
+    },
+    "reader_effort": {
+      "type": "string",
+      "title": "Reader effort",
+      "description": "Effort of the reader agent; \"profile\" takes it from the profile.",
+      "default": "profile",
+      "options": ["profile", "low", "medium", "high", "xhigh", "max"]
+    },
+    "writer_model": {
+      "type": "string",
+      "title": "Writer model",
+      "description": "Model of the writer agent; \"profile\" takes it from the profile.",
+      "default": "profile",
+      "options": ["profile", "opus", "sonnet", "haiku"]
+    },
+    "writer_effort": {
+      "type": "string",
+      "title": "Writer effort",
+      "description": "Effort of the writer agent; \"profile\" takes it from the profile.",
+      "default": "profile",
+      "options": ["profile", "low", "medium", "high", "xhigh", "max"]
+    },
+    "reviewer_model": {
+      "type": "string",
+      "title": "Reviewer model",
+      "description": "Model of the reviewer agent; \"profile\" takes it from the profile.",
+      "default": "profile",
+      "options": ["profile", "opus", "sonnet", "haiku"]
+    },
+    "reviewer_effort": {
+      "type": "string",
+      "title": "Reviewer effort",
+      "description": "Effort of the reviewer agent; \"profile\" takes it from the profile.",
+      "default": "profile",
+      "options": ["profile", "low", "medium", "high", "xhigh", "max"]
+    }
+  }
 }

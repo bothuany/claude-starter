@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, Timer } from 'claude-code'
+import type { EngineInterface, PluginOptions, Register, RenderChildren, Timer } from 'claude-code'
 
 import type { Agent, Cycle, Lead, Plan } from '../types'
 
@@ -27,6 +27,26 @@ const ROLES: Record<string, string[]> = {
   // The writer that fixes the findings runs in this phase too.
   'code-review': ['reviewer', 'writer'],
   probe: ['reviewer'],
+}
+
+// Model and effort per role for each profile; the userConfig fields `<role>_model` and `<role>_effort` win over it.
+const PROFILES: Record<string, Record<string, [string, string]>> = {
+  max: { reader: ['sonnet', 'medium'], writer: ['sonnet', 'high'], reviewer: ['opus', 'medium'] },
+  balanced: { reader: ['sonnet', 'low'], writer: ['sonnet', 'medium'], reviewer: ['sonnet', 'high'] },
+  light: { reader: ['haiku', 'low'], writer: ['sonnet', 'medium'], reviewer: ['sonnet', 'medium'] },
+}
+const MODELS = ['opus', 'sonnet', 'haiku']
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+// Throws on a value outside the tables: the caller then leaves the call as the lead made it.
+const resolveRole = (options: PluginOptions, role: string) => {
+  const base = PROFILES[String(options.profile)]?.[role]
+  const pick = (kind: string, i: number, allowed: string[]) => {
+    const set = options[`${role}_${kind}`]
+    const value = set === 'profile' ? base?.[i] : set
+    if (typeof value !== 'string' || !allowed.includes(value)) throw new Error(`no ${kind} for ${role}`)
+    return value
+  }
+  return { model: pick('model', 0, MODELS) as 'opus' | 'sonnet' | 'haiku', effort: pick('effort', 1, EFFORTS) as 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
 }
 
 const clock = (ms: number) => {
@@ -377,13 +397,13 @@ async function leadBlock($: EngineInterface, now: number, width: number, Box: an
     ),
   )
   return (
-    <Box flexDirection="column" paddingLeft={1}>
+    <Box flexDirection="column" rowGap="sm" paddingLeft={1}>
       {rows}
     </Box>
   )
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await quiet(async () => void emails.delete(await rootOf($)))
@@ -431,6 +451,15 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    // Only the plugin's own roles are rewritten; a resolver failure leaves the call as the lead made it.
+    const role = e.tool === 'Agent' ? /^starter:(reader|writer|reviewer)$/.exec(e.subagent_type ?? '')?.[1] : undefined
+    if (e.tool === 'Agent' && role) {
+      try {
+        e = { ...e, ...resolveRole(options, role) }
+      } catch {
+        // pass e through
+      }
+    }
     if (e.tool === 'Agent' && e.effort) remember(efforts, e.tool_use_id, e.effort)
     if (e.agentId) bg(note($, e.agentId, String(e.tool), targetOf(e)))
     else bg(lead($, l => ({ ...l, busy: true, tool: String(e.tool), target: targetOf(e) })))
@@ -620,12 +649,12 @@ export const register: Register = on => {
       // The rail has one `▍` per body line, so every body line stays one row high.
       const card = (...lines: RenderChildren[]) => (
         <Box gap={1} paddingLeft={1}>
-          <Box flexDirection="column" flexShrink={0}>
+          <Box flexDirection="column" rowGap="sm" flexShrink={0}>
             {lines.map(() => (
               <Text mono color="claude">▍</Text>
             ))}
           </Box>
-          <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+          <Box flexDirection="column" rowGap="sm" flexGrow={1} flexShrink={1} minWidth={0}>
             {lines}
           </Box>
         </Box>
@@ -690,7 +719,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" gap={1}>
           {main ? (
-            <Box flexDirection="column">
+            <Box flexDirection="column" rowGap="sm">
               {head}
               {main}
             </Box>
@@ -699,7 +728,7 @@ export const register: Register = on => {
           )}
           {stations}
           {card(...body)}
-          {finished.length > 0 ? <Box flexDirection="column">{finished}</Box> : undefined}
+          {finished.length > 0 ? <Box flexDirection="column" rowGap="sm">{finished}</Box> : undefined}
           {next.length > 0 ? (
             <Box paddingLeft={1}>
               <Text dimColor>{`next: ${next.join(' · ')}`}</Text>

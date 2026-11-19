@@ -2,6 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { register } from './register'
+
 const PANE = {
   plugin: 'starter',
   component: 'Pane',
@@ -86,7 +88,7 @@ function world(on: On, entries: Record<string, unknown> = {}, root = ROOT, withC
   const files = new Map<string, string>()
   const definitions = new Map<string, string>()
   const unreadable = new Set<string>()
-  const seen = { call: '' }
+  const seen = { call: '', input: undefined as { model?: string; effort?: string } | undefined }
   const reads: string[] = []
   const panes: string[] = []
   const where = { root }
@@ -125,10 +127,11 @@ function world(on: On, entries: Record<string, unknown> = {}, root = ROOT, withC
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', (_, e) => {
     seen.call = e.tool_use_id
+    seen.input = e as typeof seen.input
     return { result: {} }
   })
   files.set(PLAN, planText())
-  return { time: time!, files, definitions, unreadable, panes, store, broken, reads, where, who, call: () => seen.call }
+  return { time: time!, files, definitions, unreadable, panes, store, broken, reads, where, who, call: () => seen.call, input: () => seen.input }
 }
 
 async function start($: Engine, time: ReturnType<typeof mock.clock>) {
@@ -574,7 +577,7 @@ test('a failed read, a file that no longer parses and a store error leave the la
 
 const agentLine = async ($: Engine) => (await screen($)).find(l => l.startsWith(' ▍ ') && l.includes(' · '))
 
-test('the agent line shows the explicit effort, else the role pin, and a failed definition read is retried on the next spawn', async ($, on) => {
+test('the agent line shows the role pin, a failed definition read is retried on the next spawn, and the setting wins over an effort the lead passed', async ($, on) => {
   const w = world(on, { [KEY]: PLAN })
   w.definitions.set('writer.md', WRITER)
   w.definitions.set('reader.md', READER)
@@ -600,8 +603,9 @@ test('the agent line shows the explicit effort, else the role pin, and a failed 
   w.unreadable.clear()
   expect(await run('starter:reader', 'gather', 'opus')).toBe(' ▍ reader · Opus 5.5 · medium')
 
+  // The setting wins over the effort the lead passed.
   await $.tool.call({ tool: 'Agent', subagent_type: 'starter:reader', model: 'opus', effort: 'max', description: 'd', prompt: 'p' })
-  expect(await run('starter:reader', 'gather', 'opus')).toBe(' ▍ reader · Opus 5.5 · max')
+  expect(await run('starter:reader', 'gather', 'opus')).toBe(' ▍ reader · Opus 5.5 · medium')
 })
 
 test('a Bash target is the program and one plain word, never the rest of the command', async ($, on) => {
@@ -700,6 +704,39 @@ test("the card's rail has one ▍ per body line, and every body line is one row"
       expect(body).toBe(rail)
       expect(rows).toEqual(Array(rail).fill(1))
     }
+  }
+})
+
+test('spacing: the rail and body columns carry the same rowGap, and the rail still has one ▍ per body line', async ($, on) => {
+  lead(on)
+  await writer(on, $)
+  const gaps = (n: Drawn): unknown[][] => {
+    const [rail, body] = kidsOf(n)
+    const isCard = rail && body && typeof rail !== 'string' && typeof body !== 'string' && rail.type === 'Box' && kidsOf(rail).length > 0 && kidsOf(rail).every(k => flatText(k) === '▍')
+    return [...(isCard ? [[rail.props?.rowGap, body.props?.rowGap, kidsOf(rail).length, kidsOf(body).length]] : []), ...kidsOf(n).flatMap(gaps)]
+  }
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount(mounted(surface, 44))
+    const cards = gaps((await ui.drawn()) as Drawn)
+    await ui.unmount()
+    expect(cards).toEqual([['sm', 'sm', 4, 4]])
+  }
+})
+
+test('spacing: the head block, the lead block and the finished-phases list carry rowGap sm', async ($, on) => {
+  lead(on)
+  await writer(on, $)
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount(mounted(surface, 44))
+    const root = (await ui.drawn()) as Drawn
+    await ui.unmount()
+    const [headMain] = kidsOf(root) as Exclude<Drawn, string>[]
+    const leadColumn = kidsOf(headMain!)[1] as Exclude<Drawn, string>
+    const finished = kidsOf(root).find(k => typeof k !== 'string' && kidsOf(k).length === 3 && kidsOf(k).every(c => flatText(c).startsWith('✓'))) as Exclude<Drawn, string>
+    expect(flatText(leadColumn)).toContain('ctx')
+    expect([headMain!.props?.rowGap, leadColumn.props?.rowGap, finished.props?.rowGap]).toEqual(['sm', 'sm', 'sm'])
   }
 })
 
@@ -1043,4 +1080,64 @@ test('a rate-limit window at 80% or more is drawn as a warning, and a context no
   const ui = await $.ui.mount(mounted('terminal', 44))
   expect((await ui.find({ type: 'Text', text: '5h 85%' }))?.props).toMatchObject({ color: 'warning' })
   await ui.unmount()
+})
+
+const agentCall = (subagent_type: string, extra: { model?: 'opus'; effort?: 'max' } = {}) =>
+  ({ tool: 'Agent', subagent_type, description: 'd', prompt: 'p', ...extra }) as const
+const resolved = async ($: Engine, w: ReturnType<typeof world>, input: ReturnType<typeof agentCall>) => {
+  await $.tool.call(input)
+  return w.input()
+}
+
+test('settings: the default options give each role the max profile', async ($, on) => {
+  const w = world(on)
+  await start($, w.time)
+  expect(await resolved($, w, agentCall('starter:reader'))).toMatchObject({ model: 'sonnet', effort: 'medium' })
+  expect(await resolved($, w, agentCall('starter:writer'))).toMatchObject({ model: 'sonnet', effort: 'high' })
+  expect(await resolved($, w, agentCall('starter:reviewer'))).toMatchObject({ model: 'opus', effort: 'medium' })
+})
+
+test('settings: the light profile gives the reader haiku and low', { options: { profile: 'light' } }, async ($, on) => {
+  const w = world(on)
+  await start($, w.time)
+  expect(await resolved($, w, agentCall('starter:reader'))).toMatchObject({ model: 'haiku', effort: 'low' })
+})
+
+test('settings: a role field set to a value wins over the profile', { options: { profile: 'max', reviewer_model: 'sonnet' } }, async ($, on) => {
+  const w = world(on)
+  await start($, w.time)
+  expect(await resolved($, w, agentCall('starter:reviewer'))).toMatchObject({ model: 'sonnet', effort: 'medium' })
+})
+
+test('settings: a model and effort the lead passed are replaced', async ($, on) => {
+  const w = world(on)
+  await start($, w.time)
+  expect(await resolved($, w, agentCall('starter:writer', { model: 'opus', effort: 'max' }))).toMatchObject({ model: 'sonnet', effort: 'high' })
+})
+
+test('settings: a bare reviewer and a non-starter agent are untouched', async ($, on) => {
+  const w = world(on)
+  await start($, w.time)
+  for (const type of ['reviewer', 'general-purpose', 'starter:other']) {
+    expect(await resolved($, w, agentCall(type, { model: 'opus', effort: 'max' }))).toMatchObject({ model: 'opus', effort: 'max' })
+  }
+})
+
+// The engine unsets an option outside a field's options, so the hook is driven directly with one the tables do not hold.
+test('settings: a resolver failure passes the call through unchanged', async () => {
+  let hook: ((...args: any[]) => Promise<unknown>) | undefined
+  register(((name: string, ...rest: unknown[]) => void (name === 'tool.call' && (hook = rest.at(-1) as typeof hook))) as unknown as On, { profile: 'bogus', reviewer_model: 'profile', reviewer_effort: 'profile' })
+  const input = agentCall('starter:reviewer', { model: 'opus', effort: 'max' })
+  let passed: unknown
+  await hook!({}, input, async (e: unknown) => ((passed = e), { result: {} }))
+  expect(passed).toEqual(input)
+})
+
+test('settings: the /phase agent row shows the rewritten model and effort', { options: { writer_model: 'haiku', writer_effort: 'low' } }, async ($, on) => {
+  const w = world(on, { [KEY]: PLAN })
+  on('agent.spawn', (_, e) => ({ model: e.model ?? '', agentId: 'a1' }))
+  await start($, w.time)
+  await $.tool.call(agentCall('starter:writer', { model: 'opus', effort: 'max' }))
+  await $.agent.spawn(spawn(w.call(), 'starter:writer', w.input()?.model))
+  expect(await agentLine($)).toBe(' ▍ writer · Haiku · low')
 })

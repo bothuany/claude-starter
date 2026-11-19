@@ -37,7 +37,7 @@ Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the O
 | **Working rules** | `SessionStart` hook, 410 words per session | Short rules: ask before assuming, check the docs, delegate wide reading, verify before saying done ([read them](plugins/starter/rules.md)) |
 | **Review gate** | `Stop` hook, on by default | If the session changed enough code and `code-review` hasn't run, it asks Claude once to run it before stopping; a change that is not risky gets a one-line answer |
 | **`cycle`** | Skill (you run it) | Runs one piece of work through gather, plan, plan review, build, code review and probe, handing off through a plan file; off unless you start it |
-| **Role agents** | `reader` (Sonnet, medium), `writer` (Sonnet, high), `reviewer` (Opus, medium) | Each role fixes its model and effort; they are started by name and start clean |
+| **Role agents** | `reader` (Sonnet, medium), `writer` (Sonnet, high), `reviewer` (Opus, medium) | Model and effort come from the `profile` setting (default `max`: these values) and the role fields; they are started by name and start clean |
 | **`/phase`** | Mod command and pane | Shows the main session (model, effort, session age, context, rate limits, current tool) and, during a cycle, its phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | **`visual-plan`** | Skill | Writes a plan in the plan-file format first; an optional visual page of it |
 | **`grill`**, **`review-setup`** | Skills (you run them) | Interview you about a loose idea; draft a short `REVIEW.md` for your repo |
@@ -112,6 +112,24 @@ The plan file is `docs/plans/<slug>.md`, at most about 150 lines. The skill, the
 - **`## Log`:** the lead adds one line `- <phase>: <evidence>` each time it moves the phase on.
 
 `/phase` opens a side pane that shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan.
+
+### Agent model and effort
+
+The plugin declares seven string settings in `userConfig`, asked at install and shown as rows in `/config` (or `/plugin configure`), stored in settings.json under `pluginConfigs`:
+
+- `profile`: `max` (default), `balanced` or `light`.
+- `reader_model`, `writer_model`, `reviewer_model`: `profile` (default), `opus`, `sonnet` or `haiku`.
+- `reader_effort`, `writer_effort`, `reviewer_effort`: `profile` (default), `low`, `medium`, `high`, `xhigh` or `max`.
+
+| profile | reader | writer | reviewer |
+|---|---|---|---|
+| max | sonnet · medium | sonnet · high | opus · medium |
+| balanced | sonnet · low | sonnet · medium | sonnet · high |
+| light | haiku · low | sonnet · medium | sonnet · medium |
+
+**Precedence:** a role field set to anything but `profile` wins over the profile and stays when the profile changes; the setting wins over a `model` or `effort` the lead passes in the Agent call. Only `starter:reader`, `starter:writer` and `starter:reviewer` are rewritten (a bare `reviewer` may be your own agent), in the `tool.call` hook, so the `/phase` card shows what really runs. If the settings can't be resolved the call goes through unchanged. The agent files keep the `max` values, so the roles behave the same when the hook doesn't run. `inherit` is not offered: the Agent tool's `model` parameter doesn't take it.
+
+**Fallback:** the environment variables `CLAUDE_CODE_SUBAGENT_MODEL` (with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`) and `CLAUDE_CODE_EFFORT_LEVEL` apply to every subagent, not per role, so they are only a fallback for setups where the plugin's hook does not run.
 
 ### Where 0.10 came from
 
@@ -329,7 +347,7 @@ The rules were rewritten in 0.10 too; the review-gate and rule-following numbers
 
 ## Design choices
 
-- **Few pieces, each one earning its place.** There are three role agents (`reader`, `writer`, `reviewer`), because a role pins model and effort and the type of a task is readable from its brief. There are still no generic "senior engineer" personas: they add context at every session and little behaviour.
+- **Few pieces, each one earning its place.** There are three role agents (`reader`, `writer`, `reviewer`), because a role has its own model and effort (set by the `profile` setting) and the type of a task is readable from its brief. There are still no generic "senior engineer" personas: they add context at every session and little behaviour.
 - **Rules from the plugin, hooks only where rules fail.** The rules arrive with the plugin and leave with it, and their cost is fixed. The review gate exists because one model skipped the rule; nothing else is forced.
 - **Questions come from the main session.** Subagents can't ask you, so open questions are settled before delegating.
 - **Off by default.** The cycle starts only when you type `/starter:cycle <work>`. Questions and small fixes are answered directly; a cycle is for a piece of work big enough to need a plan.
