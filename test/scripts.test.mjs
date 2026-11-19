@@ -832,3 +832,26 @@ test('the monthly stamp and the project stamp are written only after the notice 
   assert.ok(!existsSync(join(env.CLAUDE_PLUGIN_DATA, 'last-reminder')))
   assert.ok(!existsSync(join(env.CLAUDE_PLUGIN_DATA, 'projects.json')))
 })
+
+// The test kit reads no files, so the tables in register.tsx are read here as text and compared with the agents and the manifest.
+test('settings drift: the max profile matches the agents frontmatter, and MODELS and EFFORTS match the manifest options', () => {
+  const plugin = join(scripts, '..')
+  const source = readFileSync(join(plugin, 'hooks', 'register.tsx'), 'utf8')
+  // The literal after `const NAME ... =`, up to the line that closes it.
+  const literal = name => {
+    const start = source.indexOf('= ', source.indexOf(`const ${name}`)) + 2
+    const closer = source[start] === '{' ? '\n}' : ']'
+    return new Function(`return ${source.slice(start, source.indexOf(closer, start) + closer.length)}`)()
+  }
+  const profiles = literal('PROFILES')
+  const models = literal('MODELS')
+  const efforts = literal('EFFORTS')
+  const { userConfig } = JSON.parse(readFileSync(join(plugin, '.claude-plugin', 'plugin.json'), 'utf8'))
+  assert.deepEqual(Object.keys(profiles), userConfig.profile.options)
+  for (const role of ['reader', 'writer', 'reviewer']) {
+    const head = readFileSync(join(plugin, 'agents', `${role}.md`), 'utf8').split('---')[1]
+    assert.deepEqual([/^model:\s*(\S+)/m.exec(head)[1], /^effort:\s*(\S+)/m.exec(head)[1]], profiles.max[role])
+    assert.deepEqual(userConfig[`${role}_model`].options.slice(1), models)
+    assert.deepEqual(userConfig[`${role}_effort`].options.slice(1), efforts)
+  }
+})

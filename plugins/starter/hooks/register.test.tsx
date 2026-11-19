@@ -577,7 +577,7 @@ test('a failed read, a file that no longer parses and a store error leave the la
 
 const agentLine = async ($: Engine) => (await screen($)).find(l => l.startsWith(' ▍ ') && l.includes(' · '))
 
-test('the agent line shows the explicit effort, else the role pin, and a failed definition read is retried on the next spawn', async ($, on) => {
+test('the agent line shows the role pin, a failed definition read is retried on the next spawn, and the setting wins over an effort the lead passed', async ($, on) => {
   const w = world(on, { [KEY]: PLAN })
   w.definitions.set('writer.md', WRITER)
   w.definitions.set('reader.md', READER)
@@ -708,6 +708,7 @@ test("the card's rail has one ▍ per body line, and every body line is one row"
 })
 
 test('spacing: the rail and body columns carry the same rowGap, and the rail still has one ▍ per body line', async ($, on) => {
+  lead(on)
   await writer(on, $)
   const gaps = (n: Drawn): unknown[][] => {
     const [rail, body] = kidsOf(n)
@@ -720,6 +721,22 @@ test('spacing: the rail and body columns carry the same rowGap, and the rail sti
     const cards = gaps((await ui.drawn()) as Drawn)
     await ui.unmount()
     expect(cards).toEqual([['sm', 'sm', 4, 4]])
+  }
+})
+
+test('spacing: the head block, the lead block and the finished-phases list carry rowGap sm', async ($, on) => {
+  lead(on)
+  await writer(on, $)
+
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount(mounted(surface, 44))
+    const root = (await ui.drawn()) as Drawn
+    await ui.unmount()
+    const [headMain] = kidsOf(root) as Exclude<Drawn, string>[]
+    const leadColumn = kidsOf(headMain!)[1] as Exclude<Drawn, string>
+    const finished = kidsOf(root).find(k => typeof k !== 'string' && kidsOf(k).length === 3 && kidsOf(k).every(c => flatText(c).startsWith('✓'))) as Exclude<Drawn, string>
+    expect(flatText(leadColumn)).toContain('ctx')
+    expect([headMain!.props?.rowGap, leadColumn.props?.rowGap, finished.props?.rowGap]).toEqual(['sm', 'sm', 'sm'])
   }
 })
 
@@ -1141,6 +1158,8 @@ function rolesWorld(on: On, deny?: string) {
   const toasts: string[] = []
   on('config.list', () => ({
     value: [
+      // Another plugin's row with a starter field's name comes first: only this plugin's rows count.
+      { key: 'other.reviewer_model', label: 'other', kind: 'choice', value: 'x', options: ['x', 'y'], provider: { plugin: 'other', tier: 'user' }, isLocked: false },
       { key: 'theme', label: 'Theme', kind: 'choice', value: 'dark', options: ['dark', 'light'], provider: { plugin: 'engine', tier: 'core' }, isLocked: false },
       ...Object.entries(FIELDS).map(([f, r]) => ({ key: `starter.${f}`, label: f, kind: 'choice' as const, provider: BY, isLocked: false, ...r })),
     ],
@@ -1165,6 +1184,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     }
     for (const f of Object.keys(FIELDS)) expect(await ui.find({ type: 'Select', key: f })).toBeTruthy()
     await ui.select({ key: 'reviewer_model', value: 'sonnet' })
+    // starter.reviewer_model, not the other plugin's row of the same field name.
     expect(w.sets).toEqual([{ key: 'starter.reviewer_model', value: 'sonnet' }])
     await ui.unmount()
   })

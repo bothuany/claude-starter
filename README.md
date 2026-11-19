@@ -66,7 +66,7 @@ The cycle is off by default. You start it for one piece of work with `/starter:c
 ![The cycle. Six phases on one line: gather (lead and you), plan (lead), plan review (reviewer, then you approve), build (writer), code review (reviewer, the writer fixes), probe (lead). Plan review, build and code review run in a clean context that starts from the plan file. Every phase reads and writes docs/plans/slug.md, which holds the phase, the items with their checks, and the log.](assets/cycle.svg)
 
 - **The plan file is the contract.** It holds the decisions and a list of items, each with a check, a command that passes when the item is done. The writer ticks an item only after its check passes. The lead re-reads the file at every phase, so a new session can resume with `/starter:cycle`.
-- **Roles are named, never forks.** `writer` (Sonnet, high effort) builds from the plan file. `reviewer` (Opus, medium) reviews the plan, then the code against the plan and `REVIEW.md`. `reader` (Sonnet, medium) does wide reading. A fork would inherit the lead's whole context, which is what the cycle avoids.
+- **Roles are named, never forks.** `writer` builds from the plan file, `reviewer` reviews the plan, then the code against the plan and `REVIEW.md`, and `reader` does wide reading. By default (the `max` profile) the writer runs on Sonnet at high effort, the reviewer on Opus at medium and the reader on Sonnet at medium; a profile or `/roles` changes them. A fork would inherit the lead's whole context, which is what the cycle avoids.
 - **Work stays on a branch.** The lead creates `cycle/<slug>` and commits there after each phase; nothing is pushed or merged unless you ask.
 
 ## Always on
