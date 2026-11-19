@@ -2,6 +2,7 @@
 cycle: agent-config
 author: rbdikmen@gmail.com
 phase: plan-review
+waiting: user
 branch: cycle/agent-config
 ---
 
@@ -39,42 +40,58 @@ also sit too close together to read (screenshot from the desktop app: the head b
   model and effort. A failure in resolving falls back to passing `e` unchanged (the hook must never break a spawn).
   Not `${user_config}` in agent frontmatter: the docs do not say it is substituted there.
 - The agent frontmatter keeps today's values (the `max` profile), so the plugin behaves as before when no hook runs.
-- `/starter:agents` toggles a pane (id `agents`, like `/phase` toggles `phase`) with one `Select` per field, drawn
-  on terminal and desktop. A pick calls `$.config.set({ key, value })`, the key taken from `$.config.list()` (the row
-  whose provider is this plugin and whose key ends in `.<field>`), so an installed and a `--plugin-dir` copy both work.
-  Each role row also shows the resolved `model · effort` it will run on. A `{ deny }` (a locked row) shows a toast.
+- `/roles` (registered as `roles` with `$.command.register`, like `phase`; a mod command can't hold a colon and
+  `/agents` is built in) toggles a pane (id `roles`) with one `Select` per field, drawn on terminal and desktop.
+  A pick calls `$.config.set({ key, value })`, the key taken from `$.config.list()` (the row whose provider is this
+  plugin and whose key ends in `.<field>`), so an installed and a `--plugin-dir` copy both work. Each role row also
+  shows the resolved `model · effort` it will run on. A `{ deny }` (a locked row) shows a toast. A pick reloads the
+  module (`register` runs again with the new `options`).
+- Only `starter:`-prefixed `subagent_type` values are rewritten: a bare `reviewer` may be the user's own agent.
 - Global env vars (`CLAUDE_CODE_SUBAGENT_MODEL` with `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`, `CLAUDE_CODE_EFFORT_LEVEL`)
   are documented as a fallback only: they apply to every subagent, not per role.
 - /phase pane spacing: `rowGap="sm"` on the column boxes of the head block (the `head`+`main` box and `leadBlock`'s
   column), the card (body column and the rail column alike, so each `▍` stays beside its line) and the finished-phases
   list. `sm` is 0 rows in the terminal (so a narrow terminal pane gets no taller) and a small gap on desktop.
-- Version 0.11.0 (`plugin.json`, `.claude-plugin/marketplace.json`).
+- Version 0.11.0: `plugins/starter/.claude-plugin/plugin.json` and the badge at `README.md:5`
+  (`.claude-plugin/marketplace.json` has no version).
+- Tests are named with a prefix per item (`settings:`, `roles pane:`, `spacing:`) so each check can find its own.
+  `claude plugin test` has no filter and passes on today's tree, so a check greps for its prefix too.
 
 ## Items
 
-- [ ] 1. Add the seven `userConfig` fields above to `plugins/starter/.claude-plugin/plugin.json`, each with a
-  `description`, `default` and `options`; bump `version` to 0.11.0 there and in `.claude-plugin/marketplace.json`.
-  check: `claude plugin validate plugins/starter && node -e "const c=require('./plugins/starter/.claude-plugin/plugin.json');const k=Object.keys(c.userConfig||{});if(k.length!==7||c.version!=='0.11.0')process.exit(1)"`
-- [ ] 2. In `register.tsx`, a `PROFILES` table and a resolver from `options` + role to `{ model, effort }`; the
-  `tool.call` rewrite for `starter:*` Agent calls. Tests in `register.test.tsx` (with `test(name, { options }, ...)`):
-  default options give today's values; `profile: light` gives haiku/low for reader; `reviewer_model: sonnet` with
-  `profile: max` gives sonnet/medium; a model the lead passed is replaced; a non-starter agent is untouched; the
-  /phase agent row shows the rewritten model and effort.
-  check: `claude plugin test plugins/starter`
-- [ ] 3. `/starter:agents` command and pane: Selects for the seven fields, resolved `model · effort` per role, a pick
-  calls `$.config.set` with the listed row's key, a deny shows a toast. Tests mount it on `terminal` and `desktop`,
-  select a value and assert the `config.set` it raised (key and value).
-  check: `claude plugin test plugins/starter`
+- [ ] 1. Add the seven `userConfig` fields above to `plugins/starter/.claude-plugin/plugin.json`, each with `type:
+  "string"`, `title`, `description`, `default` and `options`; bump `version` to 0.11.0 there and in the
+  `README.md:5` badge (text and URL).
+  check: `claude plugin validate plugins/starter && node -e "const c=require('./plugins/starter/.claude-plugin/plugin.json');const u=c.userConfig||{};const k=Object.keys(u);if(k.length!==7||c.version!=='0.11.0'||k.some(f=>!u[f].title||!u[f].options))process.exit(1)" && grep -q "version-0.11.0" README.md`
+- [ ] 2. In `register.tsx`: `register` takes `(on, options)`; a `PROFILES` table and a resolver from `options` +
+  role to `{ model, effort }`; the `tool.call` rewrite for `starter:*` Agent calls, before the `efforts` record.
+  Tests (`settings:` prefix, using `test(name, { options }, ...)`): default options give today's values;
+  `profile: light` gives haiku/low for reader; `reviewer_model: sonnet` with `profile: max` gives sonnet/medium; a
+  model and effort the lead passed are replaced; a bare `reviewer` and a non-starter agent are untouched; a resolver
+  failure (an options value outside the table) passes the call through unchanged; the /phase agent row shows the
+  rewritten model and effort, with the spawn's model taken from the rewritten `tool.call` input (not passed by the
+  test). The existing test at `register.test.tsx:603-604` (`starter:reader` with `effort: 'max'` expecting `max`) is
+  rewritten for "the setting wins".
+  check: `out=$(claude plugin test plugins/starter 2>&1) && [ "$(echo "$out" | grep -c '(pass) settings:')" -ge 7 ]`
+- [ ] 3. `/roles` command and pane: Selects for the seven fields, resolved `model · effort` per role, a pick calls
+  `$.config.set` with the listed row's key, a deny shows a toast; `/roles` again closes it. Tests (`roles pane:`
+  prefix) mount it on `terminal` and `desktop`, select a value and assert the `config.set` it raised (key and
+  value), and a deny raises a toast.
+  check: `out=$(claude plugin test plugins/starter 2>&1) && [ "$(echo "$out" | grep -c '(pass) roles pane:')" -ge 3 ]`
 - [ ] 4. /phase spacing: `rowGap="sm"` on the boxes named in the decisions; the rail column matches the body column.
-  A test asserts the rail and body columns carry the same `rowGap` and the line count still matches.
-  check: `claude plugin test plugins/starter`
-- [ ] 5. Docs: README (one short section: picking a profile, `/config`, `/starter:agents`) and `docs/DETAILS.md`
-  (fields, profile table, precedence, the env var fallback); the plugin.json `description` names the settings.
-  check: `grep -q "starter:agents" README.md && grep -q "CLAUDE_CODE_SUBAGENT_MODEL" docs/DETAILS.md && grep -q "balanced" docs/DETAILS.md`
-- [ ] 6. Type check and the script tests still pass.
-  check: `node --test test/scripts.test.mjs && claude plugin validate plugins/starter`
+  A test (`spacing:` prefix) asserts the rail and body columns carry the same `rowGap` and the rail's `▍` count still
+  equals the body's line count; existing pane snapshot tests are updated, not deleted.
+  check: `out=$(claude plugin test plugins/starter 2>&1) && echo "$out" | grep -q '(pass) spacing:'`
+- [ ] 5. Docs: README (one short section: picking a profile, `/config`, `/roles`), `docs/DETAILS.md` (fields,
+  profile table, precedence, the env var fallback) and the plugin.json `description`. Fix the lines that say a role
+  fixes its model and effort: `README.md:86`, `docs/DETAILS.md:40`, `docs/DETAILS.md:332`.
+  check: `grep -q "/roles" README.md && grep -q "CLAUDE_CODE_SUBAGENT_MODEL" docs/DETAILS.md && grep -qE "^\| *balanced" docs/DETAILS.md && ! grep -q "Each role fixes its model and effort" README.md docs/DETAILS.md`
+- [ ] 6. Script tests pass and no new type errors: `claude plugin validate` exits 0 on type errors, so count them;
+  the two in `register.test.tsx` (lines ~979, ~981) are pre-existing and left alone.
+  check: `node --test test/scripts.test.mjs && [ "$(claude plugin validate plugins/starter 2>&1 | grep -c 'error TS')" -le 2 ]`
 
 ## Log
 
 - gather: profiles approved by the user; screenshot (desktop) shows the head block and card rows crowded; `$.config.set` writes a plugin's own `<plugin>.<field>` row (ConfigRow doc in the engine types)
 - plan: 6 items, each with a check; profiles, fields and spacing settled in the decisions
+- plan-review: 10 findings (reviewer); all settled in the plan: command renamed /roles (user), title+type fields, README badge, per-item test prefixes, docs lines, type-error count
