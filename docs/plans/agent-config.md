@@ -1,7 +1,7 @@
 ---
 cycle: agent-config
 author: rbdikmen@gmail.com
-phase: code-review
+phase: done
 branch: cycle/agent-config
 ---
 
@@ -96,3 +96,5 @@ also sit too close together to read (screenshot from the desktop app: the head b
 - plan-review: 10 findings (reviewer); all settled in the plan: command renamed /roles (user), title+type fields, README badge, per-item test prefixes, docs lines, type-error count
 - plan-review: approved by the user
 - build: 6/6 items ticked, every check exit 0 (writer); 56 plugin tests pass, TS error count unchanged at 2
+- code-review: round 1 five findings (3 fixed-needed, 2 needs-decision, both fixed); round 2 all five fixed, 0 new (reviewer, mutation-checked)
+- probe: all 6 checks exit 0; plugin tests 57 pass 0 fail; script tests pass; TS errors 2 (pre-existing); try-to-break by reviewer in code-review round 1 (stored config write)
