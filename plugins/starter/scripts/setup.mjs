@@ -6,7 +6,7 @@
 //   node setup.mjs check [--data <plugin data dir>]   report what is installed, as JSON
 //   node setup.mjs apply [--rules on|off] [--remove-old-rules] [--context7] [--review-gate on|off]
 //                        [--data <plugin data dir>]
-//   node setup.mjs skip|unskip review-md|project-setup --data <plugin data dir>   stop or resume asking about it in this project
+//   node setup.mjs skip|unskip review-md|probe-md|project-setup --data <plugin data dir>   stop or resume asking about it in this project
 //
 // It writes flags in the plugin's data dir (rules off, review gate off), the user-scope context7 MCP server
 // through `claude mcp add`, and removes the old marked copy of the rules (versions before 0.8) from the user's
@@ -214,6 +214,6 @@ if (command === 'check') {
   }
   console.log(command === 'skip' ? `${step}: declined for ${project.root} (and its worktrees)` : `${step}: back to unknown for ${project.root} (and its worktrees)`)
 } else {
-  console.error('usage: setup.mjs check [--data <dir>] | skip|unskip review-md|project-setup --data <dir> | apply [--rules on|off] [--remove-old-rules] [--context7] [--review-gate on|off] [--data <dir>]')
+  console.error('usage: setup.mjs check [--data <dir>] | skip|unskip review-md|probe-md|project-setup --data <dir> | apply [--rules on|off] [--remove-old-rules] [--context7] [--review-gate on|off] [--data <dir>]')
   process.exit(1)
 }

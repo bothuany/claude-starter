@@ -40,7 +40,7 @@ Since 0.6, the coordination itself runs in a workflow of Sonnet agents, so the O
 | **Role agents** | `reader` (Sonnet, medium), `writer` (Sonnet, high), `reviewer` (Opus, medium) | Model and effort come from the `profile` setting (default `max`: these values) and the role fields; they are started by name and start clean |
 | **`/phase`** | Mod command and pane | Shows the main session (model, effort, session age, context, rate limits, current tool) and, during a cycle, its phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan |
 | **`visual-plan`** | Skill | Writes a plan in the plan-file format first; an optional visual page of it |
-| **`grill`**, **`review-setup`** | Skills (you run them) | Interview you about a loose idea; draft a short `REVIEW.md` for your repo |
+| **`grill`**, **`review-setup`**, **`probe-setup`** | Skills (you run them) | Interview you about a loose idea; draft a short `REVIEW.md` for your repo; draft a short `PROBE.md` saying how the probe runs a change for real here |
 | **`clean-worktrees`** | Skill (you run it) | Removes clean, merged worktrees and branches, and never deletes through links into your main checkout |
 | **`setup`** | Skill (you run it) | Sets what a plugin can't ship (optional add-ons) and turns the rules or the gate off, showing every change first |
 | **`monthly-review`** | Skill plus a reminder when a review is due (at most once a day) | Runs `/insights`, checks its suggestions against your setup, applies at most two, prunes auto memory |
@@ -97,11 +97,11 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 | Phase | Who | What happens |
 |---|---|---|
 | gather | lead | Settle what the work is for and its decisions with you, a few questions at a time; wide reading goes to `reader` |
-| plan | lead | Write the plan file: why, decisions, items, each with a check |
-| plan-review | `reviewer` | One pass: every item has a check that can run and tests the item, the plan agrees with the code it names, nothing the goal needs is missing. The lead settles the findings, then waits for your approval |
+| plan | lead | Write the plan file: why, decisions, items, each with a check, and a `## Probe` section saying how the change will be run for real and what it should return, taken from `PROBE.md` when the project has one |
+| plan-review | `reviewer` | One pass: every item has a check that can run and tests the item, `## Probe` runs the change itself rather than a stand-in, the plan agrees with the code it names, nothing the goal needs is missing. The lead settles the findings, then waits for your approval |
 | build | `writer` | Builds the items in order from the plan file, ticking each after its check passes; then the lead reruns every check with `scripts/plan-check.mjs` and sends a failure back to the writer |
 | code-review | `reviewer` | Reviews the diff against the plan and `REVIEW.md`; findings go back to the writer that built the change |
-| probe | lead | Runs every check and shows the output; for a high-risk change the reviewer also tries to break it |
+| probe | lead | Runs the change for real as `## Probe` says and logs the command and its result (or logs `not run live` with the reason and tells you), then reruns every check; for a high-risk change the reviewer also tries to break it |
 
 The plan file is `docs/plans/<slug>.md`, at most about 150 lines. The skill, the writer and the `/phase` pane read it by one contract:
 

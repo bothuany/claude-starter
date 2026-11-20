@@ -610,10 +610,43 @@ const hookCall = (env, event) => {
 }
 
 const REVIEW_LINE = 'this project has no REVIEW.md: run /starter:review-setup, or /starter:setup skip review-md to stop asking here'
+const BOTH_LINE = 'this project has no REVIEW.md and has no PROBE.md: run /starter:review-setup and /starter:probe-setup, or /starter:setup skip review-md / skip probe-md to stop asking here'
+const PROBE_LINE = 'this project has no PROBE.md: run /starter:probe-setup, or /starter:setup skip probe-md to stop asking here'
+const probed = repo => (writeFileSync(join(repo, 'PROBE.md'), '# probe'), repo)
+
+test('a repo without REVIEW.md and PROBE.md is reminded of both in one line, and each file ends its own reminder', () => {
+  const { env } = configDir()
+  const repo = plainRepo()
+  assert.equal(projectLine(repo, env), BOTH_LINE)
+  const reset = () => {
+    const file = join(env.CLAUDE_PLUGIN_DATA, 'projects.json')
+    const state = JSON.parse(readFileSync(file, 'utf8'))
+    for (const key of Object.keys(state)) state[key].reminded = '2000-01-01'
+    writeFileSync(file, JSON.stringify(state))
+  }
+  writeFileSync(join(repo, 'REVIEW.md'), '# review')
+  reset()
+  assert.equal(projectLine(repo, env), PROBE_LINE)
+  probed(repo)
+  reset()
+  assert.equal(projectLine(repo, env), '')
+})
+
+test('setup skip probe-md stops the PROBE.md reminder for this project only, and check shows it', () => {
+  const { env } = configDir()
+  const repo = plainRepo()
+  writeFileSync(join(repo, 'REVIEW.md'), '# review')
+  const setup = (...args) => run('setup.mjs', [...args, '--data', env.CLAUDE_PLUGIN_DATA], repo, env)
+  assert.equal(JSON.parse(setup('check').out).projectReminders['probe-md'], 'unknown')
+  assert.match(setup('skip', 'probe-md').out, /probe-md: declined for /)
+  assert.equal(JSON.parse(setup('check').out).projectReminders['probe-md'], 'declined')
+  assert.equal(projectLine(repo, env), '')
+  assert.equal(projectLine(plainRepo(), env), BOTH_LINE)
+})
 
 test('a repo without REVIEW.md is reminded once, then silent for the rest of the day', () => {
   const { env } = configDir()
-  const repo = plainRepo()
+  const repo = probed(plainRepo())
   assert.equal(projectLine(repo, env), REVIEW_LINE)
   assert.equal(projectLine(repo, env), '')
   // The next day it asks again.
@@ -626,14 +659,14 @@ test('a repo without REVIEW.md is reminded once, then silent for the rest of the
 
 test('a REVIEW.md at the repo root ends the REVIEW.md reminder', () => {
   const { env } = configDir()
-  const repo = plainRepo()
+  const repo = probed(plainRepo())
   writeFileSync(join(repo, 'REVIEW.md'), '# review')
   assert.equal(projectLine(repo, env), '')
 })
 
 test('claude-code-setup is mentioned only when installed, and stops after the plugin ran in this project', () => {
   const { dir, env } = configDir()
-  const repo = plainRepo()
+  const repo = probed(plainRepo())
   writeFileSync(join(repo, 'REVIEW.md'), '# review')
   assert.equal(projectLine(repo, env), '')
   installClaudeCodeSetup(dir)
@@ -641,7 +674,7 @@ test('claude-code-setup is mentioned only when installed, and stops after the pl
   assert.equal(projectLine(repo, env), expected)
   // A skill from another plugin, or the same skill in another project, changes nothing.
   assert.deepEqual(skillCall(repo, env, 'starter:setup'), { status: 0, out: '' })
-  assert.deepEqual(skillCall(plainRepo(), env, 'claude-code-setup:claude-automation-recommender'), { status: 0, out: '' })
+  assert.deepEqual(skillCall(probed(plainRepo()), env, 'claude-code-setup:claude-automation-recommender'), { status: 0, out: '' })
   const state = JSON.parse(readFileSync(join(env.CLAUDE_PLUGIN_DATA, 'projects.json'), 'utf8'))
   state[Object.keys(state).find(key => state[key].reminded)].reminded = '2000-01-01'
   writeFileSync(join(env.CLAUDE_PLUGIN_DATA, 'projects.json'), JSON.stringify(state))
@@ -656,14 +689,14 @@ test('a CLAUDE.md or AGENTS.md at the repo root counts as set up, a bare .claude
   for (const make of [repo => writeFileSync(join(repo, 'CLAUDE.md'), 'x'), repo => writeFileSync(join(repo, 'AGENTS.md'), 'x')]) {
     const { dir, env } = configDir()
     installClaudeCodeSetup(dir)
-    const repo = plainRepo()
+    const repo = probed(plainRepo())
     writeFileSync(join(repo, 'REVIEW.md'), '# review')
     make(repo)
     assert.equal(projectLine(repo, env), '')
   }
   const { dir, env } = configDir()
   installClaudeCodeSetup(dir)
-  const repo = plainRepo()
+  const repo = probed(plainRepo())
   writeFileSync(join(repo, 'REVIEW.md'), '# review')
   mkdirSync(join(repo, '.claude'))
   writeFileSync(join(repo, '.claude', 'settings.local.json'), '{}')
@@ -672,15 +705,15 @@ test('a CLAUDE.md or AGENTS.md at the repo root counts as set up, a bare .claude
 
 test('turning the monthly review reminders off does not silence the project line', () => {
   const { env } = configDir()
-  run('review.mjs', ['reminders', 'off', '--data', env.CLAUDE_PLUGIN_DATA], plainRepo(), env)
-  assert.equal(projectLine(plainRepo(), env), REVIEW_LINE)
+  run('review.mjs', ['reminders', 'off', '--data', env.CLAUDE_PLUGIN_DATA], probed(plainRepo()), env)
+  assert.equal(projectLine(probed(plainRepo()), env), REVIEW_LINE)
 })
 
 test('setup skip stops the reminder for this project, unskip brings it back, check shows both steps', () => {
   const { dir, env } = configDir()
   installClaudeCodeSetup(dir)
-  const repo = plainRepo()
-  const other = plainRepo()
+  const repo = probed(plainRepo())
+  const other = probed(plainRepo())
   const setup = (...args) => run('setup.mjs', [...args, '--data', env.CLAUDE_PLUGIN_DATA], repo, env)
   const steps = () => JSON.parse(setup('check').out).projectReminders
   const before = steps()
@@ -694,7 +727,7 @@ test('setup skip stops the reminder for this project, unskip brings it back, che
   setup('skip', 'project-setup')
   const afterBoth = steps()
   assert.deepEqual([afterBoth['review-md'], afterBoth['project-setup']], ['declined', 'declined'])
-  const fresh = plainRepo()
+  const fresh = probed(plainRepo())
   run('setup.mjs', ['skip', 'review-md', '--data', env.CLAUDE_PLUGIN_DATA], fresh, env)
   run('setup.mjs', ['skip', 'project-setup', '--data', env.CLAUDE_PLUGIN_DATA], fresh, env)
   assert.equal(projectLine(fresh, env), '')
@@ -704,13 +737,13 @@ test('setup skip stops the reminder for this project, unskip brings it back, che
   assert.equal(run('setup.mjs', ['skip', 'review-md'], repo, env).status, 1)
 })
 
-test('with both steps unknown the notice is a single combined line', () => {
+test('with every step unknown the notice is a single combined line', () => {
   const { dir, env } = configDir()
   installClaudeCodeSetup(dir)
   const result = spawnSync(process.execPath, [join(scripts, 'session-check.mjs')], { cwd: plainRepo(), encoding: 'utf8', env: { ...process.env, ...env } })
   assert.equal(result.stdout.trim().split('\n').length, 1)
   assert.equal(result.stdout.match(/this project/g).length, 1)
-  assert.match(result.stdout, /has no REVIEW\.md and hasn't run claude-code-setup: run \/starter:review-setup and \/claude-code-setup:claude-automation-recommender, or \/starter:setup skip review-md \/ skip project-setup/)
+  assert.match(result.stdout, /has no REVIEW\.md and has no PROBE\.md and hasn't run claude-code-setup: run \/starter:review-setup and \/starter:probe-setup and \/claude-code-setup:claude-automation-recommender, or \/starter:setup skip review-md \/ skip probe-md \/ skip project-setup/)
 })
 
 test('outside a git repo, or in a repo without commits, the project reminders stay silent', () => {
@@ -730,7 +763,7 @@ test('a typed /claude-code-setup: command or the unprefixed skill marks the proj
     for (const key of Object.keys(state)) state[key].reminded = '2000-01-01'
     writeFileSync(file, JSON.stringify(state))
   }
-  const repo = plainRepo()
+  const repo = probed(plainRepo())
   writeFileSync(join(repo, 'REVIEW.md'), '# review')
   assert.match(projectLine(repo, env), /hasn't run claude-code-setup/)
   // Other prompts, other plugins' commands and a prefix in the middle of the text change nothing.
@@ -743,7 +776,7 @@ test('a typed /claude-code-setup: command or the unprefixed skill marks the proj
   reset()
   assert.equal(projectLine(repo, env), '')
 
-  const second = plainRepo()
+  const second = probed(plainRepo())
   writeFileSync(join(second, 'REVIEW.md'), '# review')
   assert.match(projectLine(second, env), /hasn't run claude-code-setup/)
   reset()
@@ -802,9 +835,10 @@ test('state writes keep other projects, leave no temp file, and the file stays s
 
 test('a repo and its worktrees share one entry: skip in the main checkout applies in a worktree', () => {
   const { env } = configDir()
-  const repo = plainRepo()
+  const repo = probed(plainRepo())
   const wt = join(mkdtempSync(join(tmpdir(), 'starter-wt-')), 'wt')
   git(repo, 'worktree', 'add', '-q', wt, '-b', 'w')
+  probed(wt)
   assert.equal(run('setup.mjs', ['skip', 'review-md', '--data', env.CLAUDE_PLUGIN_DATA], repo, env).status, 0)
   assert.equal(projectLine(wt, env), '')
   // Files are read from the current checkout: a REVIEW.md only in the worktree is seen there, not in the main one.
@@ -812,6 +846,8 @@ test('a repo and its worktrees share one entry: skip in the main checkout applie
   const otherWt = join(mkdtempSync(join(tmpdir(), 'starter-wt-')), 'wt')
   git(other, 'worktree', 'add', '-q', otherWt, '-b', 'w')
   writeFileSync(join(otherWt, 'REVIEW.md'), '# review')
+  probed(otherWt)
+  probed(other)
   assert.equal(projectLine(otherWt, env), '')
   assert.equal(projectLine(other, env), REVIEW_LINE)
 })
@@ -819,7 +855,7 @@ test('a repo and its worktrees share one entry: skip in the main checkout applie
 test('claude-code-setup is not mentioned when installed but not enabled', () => {
   const { dir, env } = configDir()
   installClaudeCodeSetup(dir, false)
-  const repo = plainRepo()
+  const repo = probed(plainRepo())
   writeFileSync(join(repo, 'REVIEW.md'), '# review')
   assert.equal(projectLine(repo, env), '')
 })

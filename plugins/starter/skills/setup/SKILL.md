@@ -2,18 +2,18 @@
 name: setup
 description: Configure claude-starter's pieces that a plugin can't ship itself - the optional context7 MCP server and the optional i-have-adhd and ponytail plugins - and turn the working rules or the review gate on or off, after showing exactly what will change. Also removes the old copy of the rules that versions before 0.8 wrote into ~/.claude/CLAUDE.md. Run with "check" to only report the current state, or with "skip" / "unskip" to stop or resume the per-project reminders about REVIEW.md and claude-code-setup.
 disable-model-invocation: true
-argument-hint: "[check | skip review-md|project-setup | unskip review-md|project-setup]"
+argument-hint: "[check | skip review-md|probe-md|project-setup | unskip review-md|probe-md|project-setup]"
 ---
 
 The scripts live in `${CLAUDE_PLUGIN_ROOT}/scripts`. Run them with `node`. Nothing here may change a file before the user has seen the change and agreed.
 
 ## 0. Project reminders
 
-At session start the plugin reminds, once a day per project, when the project has no `REVIEW.md` (`/starter:review-setup` drafts it) or hasn't run the separate `claude-code-setup` plugin (`/claude-code-setup:claude-automation-recommender`; only mentioned when that plugin is installed). If `$ARGUMENTS` is `skip review-md`, `skip project-setup`, `unskip review-md` or `unskip project-setup`, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" <skip|unskip> <review-md|project-setup> --data "${CLAUDE_PLUGIN_DATA}"`, repeat its one-line answer, and stop. `skip` stops the reminder for the current project only; `unskip` brings it back.
+At session start the plugin reminds, once a day per project, when the project has no `REVIEW.md` (`/starter:review-setup` drafts it), no `PROBE.md` (`/starter:probe-setup` drafts it) or hasn't run the separate `claude-code-setup` plugin (`/claude-code-setup:claude-automation-recommender`; only mentioned when that plugin is installed). If `$ARGUMENTS` is `skip` or `unskip` followed by `review-md`, `probe-md` or `project-setup`, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" <skip|unskip> <review-md|probe-md|project-setup> --data "${CLAUDE_PLUGIN_DATA}"`, repeat its one-line answer, and stop. `skip` stops the reminder for the current project only; `unskip` brings it back.
 
 ## 1. Check
 
-Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" check --data "${CLAUDE_PLUGIN_DATA}"` and summarize it in one short table: Node version, rules (on / off), old rules block in CLAUDE.md (none / present / broken), context7 registered, i-have-adhd installed, ponytail installed, review gate on or off, and the two project reminders (`projectReminders`: `review-md` and `project-setup`, each unknown / done / declined for this project, plus whether claude-code-setup is installed).
+Run `node "${CLAUDE_PLUGIN_ROOT}/scripts/setup.mjs" check --data "${CLAUDE_PLUGIN_DATA}"` and summarize it in one short table: Node version, rules (on / off), old rules block in CLAUDE.md (none / present / broken), context7 registered, i-have-adhd installed, ponytail installed, review gate on or off, and the three project reminders (`projectReminders`: `review-md`, `probe-md` and `project-setup`, each unknown / done / declined for this project, plus whether claude-code-setup is installed).
 
 If `$ARGUMENTS` is `check`, stop here.
 

@@ -26,6 +26,7 @@ When you are given a plan file (a `docs/plans/<slug>.md` with a `cycle:` key), d
 
 - The front matter has one `author:` that equals `git config user.email` (ignoring letter case). When it does not, report it as needs-decision.
 - Every item has a `check:` command that can run from the repository root and that tests the item, not something near it.
+- `## Probe` runs the change itself in a running system and names the result it expects, the way `PROBE.md` says when the repository has one (and never where its **Never** section forbids). Checks against a stand-in (an in-memory database, a mock, a build, a grep) do not count; `none: <why>` is fine only for a change with no behaviour to run.
 - The plan agrees with the code it names: the files, lines and functions it mentions exist and say what the plan says.
 - Nothing the goal needs is missing, and no two items contradict each other.
 - Report each problem as a finding with the item number. Do not edit the plan; the lead settles the findings.

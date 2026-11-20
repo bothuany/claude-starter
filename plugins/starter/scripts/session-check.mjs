@@ -4,7 +4,7 @@
 //     injects them itself, and holds them back until that copy is gone so they don't load twice
 //   - the monthly review is due: no /insights report in 30 days, or a memory index grew past 150 lines or 20KB
 //     (at most once a day, and never after `/starter:monthly-review off`)
-//   - this project has no REVIEW.md, or hasn't run claude-code-setup (at most once a day per project; stopped per
+//   - this project has no REVIEW.md or PROBE.md, or hasn't run claude-code-setup (at most once a day per project; stopped per
 //     project by `/starter:setup skip ...`, not by the monthly review's off switch)
 // The imports are inside the try, so even a broken install stays silent instead of blocking a session.
 try {

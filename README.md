@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews risky changes, and gives a piece of work a named cycle: a plan file, a clean-context build, and reviews that start fresh.
 
-[![version 0.11.1](https://img.shields.io/badge/version-0.11.1-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.11.2](https://img.shields.io/badge/version-0.11.2-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -26,7 +26,7 @@ Works from your next session. Nothing is written to your `CLAUDE.md`. Needs Node
 3. **A reviewer reads the plan, then you do.** Nothing is built until you approve.
 4. **A writer builds it** in a clean context, on the branch `cycle/rate-limiter`, ticking each item when its check passes.
 5. **A reviewer reads the code.** The writer fixes what it finds.
-6. **The probe runs every check** and shows you the output.
+6. **The probe runs the change for real** (the request or command the plan names, against a running system) and logs what came back, then reruns every check. If it can't run here, it says so instead of calling the checks a probe.
 
 **Watch it from the side** with `/phase`:
 
@@ -56,6 +56,7 @@ rate-limiter                             4/6
 | Stop it | `/starter:cycle off` |
 | Think an idea through first | `/starter:grill <the idea>` |
 | Teach reviews what is risky here | `/starter:review-setup` |
+| Teach the probe how to run this project | `/starter:probe-setup` |
 
 The plan file is the memory, not the conversation: close the session, come back tomorrow, and the cycle continues from the phase the file says.
 
@@ -88,9 +89,10 @@ Two things work in every session, with no cycle started:
 | `visual-plan` | Writes a plan in the plan-file format first; an optional visual page of it shows diagrams, the API contract, the data model, items with their checks and open questions |
 | `/starter:grill` | Interviews you about a loose idea, two question cards at a time, until every choice is made |
 | `/starter:review-setup` | Reads your repo and drafts a short `REVIEW.md`: what failure looks like here, what is risky, what to skip |
+| `/starter:probe-setup` | Reads your repo and drafts a short `PROBE.md`: what runs here (API, UI, app, CLI), how to start it and sign in, how to check each kind of change, and what a probe must never touch |
 | `/starter:clean-worktrees` | Removes clean, merged worktrees and branches, never through a symlink into your checkout |
 | `/starter:monthly-review` | Checks `/insights` against your setup, applies at most two changes, prunes stale memory |
-| `/starter:setup` | Optional add-ons (context7, i-have-adhd, ponytail) and turning the rules or the gate off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip project-setup` |
+| `/starter:setup` | Optional add-ons (context7, i-have-adhd, ponytail) and turning the rules or the gate off, each shown first. The plugin also reminds you, once a day per project, that it has no `REVIEW.md` or `PROBE.md` or hasn't run claude-code-setup, until you run them or `skip review-md` / `skip probe-md` / `skip project-setup` |
 
 ## Pick the agents' model and effort
 

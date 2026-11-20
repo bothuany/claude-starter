@@ -1,7 +1,7 @@
-// Per-project setup reminders: whether this repository has a REVIEW.md and has run claude-code-setup.
+// Per-project setup reminders: whether this repository has a REVIEW.md and a PROBE.md, and has run claude-code-setup.
 // State lives in ${CLAUDE_PLUGIN_DATA}/projects.json, keyed by the absolute git common dir, so a repository and all
 // its worktrees share one entry:
-//   { "/abs/repo/.git": { "review-md": "declined", "project-setup": "done" | "declined", "reminded": "YYYY-MM-DD" } }
+//   { "/abs/repo/.git": { "review-md": "declined", "probe-md": "declined", "project-setup": "done" | "declined", "reminded": "YYYY-MM-DD" } }
 // A missing file, entry or value means "unknown". A file that exists but is not a JSON object is left untouched
 // and the session notice stays silent until the user fixes or deletes it. Nothing is ever written into the repository.
 import { execFileSync } from 'node:child_process'
@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path'
 import { configDir } from './rules-block.mjs'
 
-export const STEPS = ['review-md', 'project-setup']
+export const STEPS = ['review-md', 'probe-md', 'project-setup']
 export const MAX_PROJECTS = 200
 export const stateFile = dataDir => join(dataDir, 'projects.json')
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -95,6 +95,7 @@ export function stepStates(dataDir, project) {
   const otherSetup = ['CLAUDE.md', 'AGENTS.md'].some(name => existsSync(join(project.root, name)))
   return {
     'review-md': existsSync(join(project.root, 'REVIEW.md')) ? 'done' : saved('review-md') === 'declined' ? 'declined' : 'unknown',
+    'probe-md': existsSync(join(project.root, 'PROBE.md')) ? 'done' : saved('probe-md') === 'declined' ? 'declined' : 'unknown',
     'project-setup': otherSetup || saved('project-setup') === 'done' ? 'done' : saved('project-setup'),
   }
 }
@@ -121,6 +122,9 @@ export function setupNote(dataDir, cwd, today) {
   const open = []
   if (states['review-md'] === 'unknown') {
     open.push({ has: 'has no REVIEW.md', run: '/starter:review-setup', skip: 'skip review-md' })
+  }
+  if (states['probe-md'] === 'unknown') {
+    open.push({ has: 'has no PROBE.md', run: '/starter:probe-setup', skip: 'skip probe-md' })
   }
   if (states['project-setup'] === 'unknown' && claudeCodeSetupInstalled()) {
     open.push({ has: "hasn't run claude-code-setup", run: '/claude-code-setup:claude-automation-recommender', skip: 'skip project-setup' })
