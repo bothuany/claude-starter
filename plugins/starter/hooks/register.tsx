@@ -97,7 +97,7 @@ const planFile = (root: string, path: string) => {
   return file.startsWith(`${root}/docs/plans/`) && file.endsWith('.md') ? file : undefined
 }
 
-// The plan file's contract (docs/plans): front matter, the `## Items` lines and the `## Log` lines. Undefined: not a cycle plan.
+// The plan file's contract (docs/plans): front matter, the `## Rules` cards, the `## Items` lines and the `## Log` lines. Undefined: not a cycle plan.
 const parsePlan = (text: string): Plan | undefined => {
   const lines = text.replace(/^﻿/, '').split(/\r?\n/)
   const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---')
@@ -117,6 +117,7 @@ const parsePlan = (text: string): Plan | undefined => {
   const plan: Plan = { cycle: front.cycle, author: front.author?.toLowerCase(), phase: phase as Plan['phase'], waiting: front.waiting === 'user', items: 0, ticked: 0, log: [] }
   let section = ''
   let fence: string | undefined
+  const cards: { id: string; p2: boolean; tested: boolean }[] = []
   for (const line of lines.slice(end + 1)) {
     // A fenced block holds examples: its headings, items and log lines are not the plan's. A fence opens with three or
     // more backticks or tildes and closes on a line that starts with at least as many of the same character.
@@ -128,7 +129,13 @@ const parsePlan = (text: string): Plan | undefined => {
     if (fence) continue
     const head = /^## (.*?)\s*$/.exec(line)
     if (head) section = head[1]!.toLowerCase()
-    else if (section === 'items') {
+    else if (section === 'rules') {
+      const card = /^###\s+(RC\d+)\b/.exec(line)
+      const last = cards.at(-1)
+      if (card) cards.push({ id: card[1]!, p2: false, tested: false })
+      else if (last && /^\s*-\s*\*\*Priority:\*\*\s*P2\b/i.test(line)) last.p2 = true
+      else if (last && /^\s*-\s*\*\*Test:\*\*\s*\S/.test(line)) last.tested = true
+    } else if (section === 'items') {
       const item = /^- \[([ xX])\] \d+\./.exec(line)
       if (item) {
         plan.items++
@@ -139,6 +146,8 @@ const parsePlan = (text: string): Plan | undefined => {
       if (entry) plan.log.push({ key: entry[1]!.trim(), text: entry[2]! })
     }
   }
+  const rules = cards.filter(c => !c.p2).map(({ id, tested }) => ({ id, tested }))
+  if (rules.length) plan.rules = rules
   return plan
 }
 
@@ -695,6 +704,21 @@ export const register: Register = (on, options) => {
         )
       }
       body.push(checks)
+      const rules = plan.rules ?? []
+      if (rules.length) {
+        const open = rules.filter(r => !r.tested).map(r => r.id)
+        body.push(
+          <Box gap={1}>
+            <Box width={6} flexShrink={0}>
+              <Text dimColor>rules</Text>
+            </Box>
+            <Box flexShrink={0}>
+              {rules.map(r => (r.tested ? <Text mono color="success">●</Text> : <Text mono dimColor>○</Text>))}
+            </Box>
+            {open.length ? grow(<Text dimColor wrap="truncate-end">{open.join(' ')}</Text>) : undefined}
+          </Box>,
+        )
+      }
 
       // Finished phases, newest first, with the evidence the lead logged for them; any other log line as it is.
       const isPhase = (key: string) => PHASES.some(p => p === key)

@@ -957,3 +957,33 @@ test('plan-check skips indented example fences, keeps long output, and works fro
   assert.match(outside.err, /not in a git repository/)
   assert.equal(run('plan-check.mjs', ['missing.md'], repo).status, 2)
 })
+
+test('plan-check fails a P0/P1 rule card that no file outside the plan names as <cycle>/RC<nn>', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'starter-plan-'))
+  git(repo, 'init', '-q')
+  git(repo, 'config', 'user.email', 'me@x')
+  mkdirSync(join(repo, 'docs', 'plans'), { recursive: true })
+  writeFileSync(join(repo, 'docs', 'plans', 'quota.md'), [
+    '---', 'cycle: quota', 'author: me@x', 'phase: build', '---',
+    '## Rules',
+    '### RC01 a full class refuses', '- **Priority:** P0', '- **Rule:** names quota/RC02 in passing',
+    '### RC02 the last seat is taken', '- **Priority:** P1',
+    '### RC03 the count is shown', '- **Priority:** P2',
+    '### ~~RC04~~ dropped: not needed',
+    '### RC05 no priority means P1',
+    '## Items', '- [ ] 1. a', '  check: true',
+  ].join('\n'))
+  const check = () => run('plan-check.mjs', ['docs/plans/quota.md'], repo)
+  let r = check()
+  assert.equal(r.out, 'FAIL 1/1 · rules 0/3: RC01, RC02, RC05')
+  assert.equal(r.status, 1)
+  assert.match(r.err, /--- RC01: no file outside the plan names quota\/RC01/)
+
+  mkdirSync(join(repo, 'test'))
+  // Untracked files count; a longer slug or id that only contains the tag does not.
+  writeFileSync(join(repo, 'test', 'quota.test.js'), "test('quota/RC01 full', () => {})\ntest('bigquota/RC02', () => {})\ntest('quota/RC050', () => {})\n")
+  r = check()
+  assert.equal(r.out, 'FAIL 1/1 · rules 1/3: RC02, RC05')
+  writeFileSync(join(repo, 'test', 'more.py'), '# quota/RC02\n# quota/RC05\n')
+  assert.deepEqual(check(), { out: 'PASS 1/1 · rules 3/3', err: '', status: 0 })
+})

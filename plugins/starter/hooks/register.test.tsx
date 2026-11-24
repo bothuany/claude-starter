@@ -1141,3 +1141,26 @@ test('settings: the /phase agent row shows the rewritten model and effort', { op
   await $.agent.spawn(spawn(w.call(), 'starter:writer', w.input()?.model))
   expect(await agentLine($)).toBe(' ▍ writer · Haiku · low')
 })
+
+const RULES = [
+  '## Rules', '',
+  '### RC01 a full class refuses', '- **Priority:** P0', '- **Test:** `rate-limiter/RC01 full`',
+  '### RC02 the last seat is taken', '- **Priority:** P1',
+  '### RC03 the count is shown', '- **Priority:** P2',
+  '### ~~RC04~~ dropped: not needed',
+  '### RC05 no priority means P1', '- **Test:**', '',
+  '```', '### RC06 an example card in a fence', '```', '',
+]
+const withRules = (text: string) => text.replace('## Items', [...RULES, '## Items'].join('\n'))
+
+test('the card shows one dot per P0/P1 rule card under the checks, filled when its Test line names a test, and the open ids', async ($, on) => {
+  const w = await writer(on, $)
+  w.files.set(PLAN, withRules(planText()))
+  await $.tool.call(edit(PLAN_EDIT))
+  const lines = await screen($)
+  const at = lines.findIndex(l => l.startsWith(' ▍ checks'))
+  expect(lines[at + 1]).toBe(' ▍ rules  ●○○ RC02 RC05')
+  w.files.set(PLAN, planText())
+  await $.tool.call(edit(PLAN_EDIT))
+  expect((await screen($)).some(l => l.includes('rules'))).toBe(false)
+})

@@ -26,6 +26,7 @@ When you are given a plan file (a `docs/plans/<slug>.md` with a `cycle:` key), d
 
 - The front matter has one `author:` that equals `git config user.email` (ignoring letter case). When it does not, report it as needs-decision.
 - Every item has a `check:` command that can run from the repository root and that tests the item, not something near it.
+- `## Rules`: when the work holds a business rule (a calculation, a validation, a state change, a quota, a date or time boundary, a permission), every rule is a card with a source you can open (a `file:line`, a document section, or a query and its result) and Examples that include both sides of each boundary (on it and one step past it). A rule backed only by a comment, or a source you can't find, is a finding. `none: <why>` is fine only for work with no such rule.
 - `## Probe` runs the change itself in a running system and names the result it expects, the way `PROBE.md` says when the repository has one (and never where its **Never** section forbids). Checks against a stand-in (an in-memory database, a mock, a build, a grep) do not count; `none: <why>` is fine only for a change with no behaviour to run.
 - The plan agrees with the code it names: the files, lines and functions it mentions exist and say what the plan says.
 - Nothing the goal needs is missing, and no two items contradict each other.

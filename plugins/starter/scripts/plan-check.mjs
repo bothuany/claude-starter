@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Runs every item's `check:` command of a cycle plan and prints one line: `PASS 7/7` or `FAIL 5/7: 3, 6`.
+// Runs every item's `check:` command of a cycle plan and prints one line: `PASS 7/7` or `FAIL 5/7: 3, 6`. When the plan has
+// P0/P1 rule cards (`## Rules`), it also looks for a file outside the plan that names each one as `<cycle>/RC<nn>` (its
+// test) and adds `· rules 2/3: RC02`: a card nothing names is a failure too.
 //
 //   node plan-check.mjs <plan>    exit 0 when all pass, 1 when any fails (an item with no check fails), 2 when nothing ran
 //
@@ -18,10 +20,12 @@ export function parseChecks(text) {
   const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---')
   if (lines[0]?.trim() !== '---' || end < 0) return undefined
   const front = lines.slice(1, end)
-  if (!front.some(l => /^cycle:\s*\S/.test(l))) return undefined
+  const cycle = front.map(l => /^cycle:\s*(.*?)\s*$/.exec(l)?.[1]).find(Boolean)?.replace(/^(["'])(.*)\1$/, '$2')
+  if (!cycle) return undefined
   const authors = front.map(l => /^author:\s*(.*?)\s*$/.exec(l)?.[1]).filter(a => a !== undefined)
   const author = authors.length === 1 ? authors[0].replace(/^(["'])(.*)\1$/, '$2').toLowerCase() : undefined
   const items = []
+  const rules = []
   let section = ''
   let fence
   for (const line of lines.slice(end + 1)) {
@@ -34,7 +38,14 @@ export function parseChecks(text) {
     if (fence) continue
     const head = /^## (.*?)\s*$/.exec(line)
     if (head) section = head[1].toLowerCase()
-    else if (section === 'items') {
+    else if (section === 'rules') {
+      // A struck-out card (`### ~~RC04~~ dropped`) is not a rule.
+      const card = /^###\s+(RC\d+)\b/.exec(line)
+      if (card) rules.push({ id: card[1], priority: undefined })
+      const priority = /^\s*-\s*\*\*Priority:\*\*\s*(P\d)/i.exec(line)
+      const last = rules.at(-1)
+      if (priority && last && last.priority === undefined) last.priority = priority[1].toUpperCase()
+    } else if (section === 'items') {
       const item = /^- \[[ xX]\] (\d+)\./.exec(line)
       if (item) items.push({ n: Number(item[1]), check: undefined })
       const check = /^\s+check:\s*(.*?)\s*$/.exec(line)
@@ -42,7 +53,7 @@ export function parseChecks(text) {
       if (check && last && last.check === undefined) last.check = check[1].replace(/^`(.*)`$/, '$1')
     }
   }
-  return { author, items }
+  return { cycle, author, items, rules }
 }
 
 function main() {
@@ -99,8 +110,27 @@ function main() {
     }
   }
   const total = plan.items.length
-  console.log(failed.length ? `FAIL ${total - failed.length}/${total}: ${failed.join(', ')}` : `PASS ${total}/${total}`)
-  return failed.length ? 1 : 0
+  let line = failed.length ? `FAIL ${total - failed.length}/${total}: ${failed.join(', ')}` : `PASS ${total}/${total}`
+  // A card without a priority counts as P1, the default for a rule.
+  const locked = plan.rules.filter(r => r.priority !== 'P2')
+  const uncovered = []
+  if (locked.length) {
+    const self = resolve(file)
+    for (const { id } of locked) {
+      const tag = `${plan.cycle}/${id}`
+      const r = spawnSync('git', ['grep', '--untracked', '-l', '-w', '-F', '-e', tag, '--', '.'], { cwd, encoding: 'utf8' })
+      const named = (r.stdout ?? '').split('\n').filter(Boolean).some(f => resolve(cwd, f) !== self)
+      if (!named) {
+        uncovered.push(id)
+        console.error(`--- ${id}: no file outside the plan names ${tag}`)
+      }
+    }
+    const n = locked.length
+    line += uncovered.length ? ` · rules ${n - uncovered.length}/${n}: ${uncovered.join(', ')}` : ` · rules ${n}/${n}`
+    if (uncovered.length && !failed.length) line = `FAIL${line.slice(4)}`
+  }
+  console.log(line)
+  return failed.length || uncovered.length ? 1 : 0
 }
 
 if (process.argv[1]?.endsWith('plan-check.mjs')) process.exitCode = main()

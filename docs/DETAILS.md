@@ -96,10 +96,10 @@ To turn the gate off for every session, add this to `~/.claude/settings.json`:
 
 | Phase | Who | What happens |
 |---|---|---|
-| gather | lead | Settle what the work is for and its decisions with you, a few questions at a time; wide reading goes to `reader` |
-| plan | lead | Write the plan file: why, decisions, items, each with a check, and a `## Probe` section saying how the change will be run for real and what it should return, taken from `PROBE.md` when the project has one |
-| plan-review | `reviewer` | One pass: every item has a check that can run and tests the item, `## Probe` runs the change itself rather than a stand-in, the plan agrees with the code it names, nothing the goal needs is missing. The lead settles the findings, then waits for your approval |
-| build | `writer` | Builds the items in order from the plan file, ticking each after its check passes; then the lead reruns every check with `scripts/plan-check.mjs` and sends a failure back to the writer |
+| gather | lead | Settle what the work is for and its decisions with you, a few questions at a time, and find the source of each business rule; wide reading goes to `reader` |
+| plan | lead | Write the plan file: why, decisions, the business rules as cards under `## Rules`, items, each with a check, and a `## Probe` section saying how the change will be run for real and what it should return, taken from `PROBE.md` when the project has one |
+| plan-review | `reviewer` | One pass: every rule card has a source that exists and examples on both sides of each boundary, every item has a check that can run and tests the item, `## Probe` runs the change itself rather than a stand-in, the plan agrees with the code it names, nothing the goal needs is missing. The lead settles the findings, then waits for your approval |
+| build | `writer` | Writes each P0/P1 rule's test first and sees it fail, then builds the items in order from the plan file, ticking each after its check passes; then the lead reruns every check with `scripts/plan-check.mjs` and sends a failure back to the writer |
 | code-review | `reviewer` | Reviews the diff against the plan and `REVIEW.md`; findings go back to the writer that built the change |
 | probe | lead | Runs the change for real as `## Probe` says and logs the command and its result (or logs `not run live` with the reason and tells you), then reruns every check; for a high-risk change the reviewer also tries to break it |
 
@@ -109,9 +109,10 @@ The plan file is `docs/plans/<slug>.md`, at most about 150 lines. The skill, the
 - **Whose plan it is:** a plan is your cycle only when its `author` equals your `git config user.email` (letter case ignored). A teammate's plan, or one with no `author`, is not resumed, not shown in `/phase`, and its `check:` commands are never run by the writer. Two `author` lines count as none, and with no git email configured no plan is yours. This guards against running the wrong plan by mistake; it is not a security boundary, since `author` is plain text a pull request can set to your email.
 - **`phase`** is one of `gather`, `plan`, `plan-review`, `build`, `code-review`, `probe`, `done`. `waiting: user` sits on the current phase while it cannot finish without your answer.
 - **`## Items`:** one line `- [ ] N. <text>` per item. The check is the first indented line starting with `check:`; its command (one pair of backticks removed) runs in bash from the repository root and passes when it exits 0.
+- **`## Rules`:** one `### RC<nn> <name>` card per business rule (a calculation, a validation, a state change, a quota, a date boundary, a permission), or `none: <why>`. A card has a Priority (P0, P1 by default, or P2), the Rule in one sentence, a Source you can open (`file:line`, a document section, or a query and its result) and Examples with both sides of every boundary. Your approval of the plan approves its cards. Every P0/P1 card needs a test whose name or tag contains `<cycle>/RC<nn>`, in any language; `plan-check.mjs` fails while no file outside the plan names it.
 - **`## Log`:** the lead adds one line `- <phase>: <evidence>` each time it moves the phase on.
 
-`/phase` opens a side pane that shows the cycle's phase, the running agent and the plan's finished items. It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan.
+`/phase` opens a side pane that shows the cycle's phase, the running agent, the plan's finished items and, under the checks, one dot per P0/P1 rule card (filled once its `Test` line names a test). It opens by itself when a cycle's plan file is first written, and in a later session if it was open, `/phase` opens and closes it, and a pane you closed stays closed for that plan.
 
 ### Agent model and effort
 
@@ -353,14 +354,14 @@ The rules were rewritten in 0.10 too; the review-gate and rule-following numbers
 - **Off by default.** The cycle starts only when you type `/starter:cycle <work>`. Questions and small fixes are answered directly; a cycle is for a piece of work big enough to need a plan.
 - **Small contexts, a durable plan.** The cycle hands off through a plan file instead of keeping one long lead session alive: the build and the reviews start in a clean context and read the file. The lead re-reads the file at every phase, so a compaction or a new session loses nothing.
 - **Named roles, never forks.** A fork inherits the lead's whole context, which is the cost the cycle avoids. `writer`, `reviewer` and `reader` are started by name and start clean.
-- **A check for every item.** An item is done when its command exits 0, not when someone says so. The writer ticks it after the check passes; `scripts/plan-check.mjs <plan>` reruns them all after the build and in the probe, prints `PASS n/n` or `FAIL k/n: <items>`, exits 0 only when all pass, and runs nothing in a plan that is not yours.
+- **A check for every item.** An item is done when its command exits 0, not when someone says so. The writer ticks it after the check passes; `scripts/plan-check.mjs <plan>` reruns them all after the build and in the probe, prints `PASS n/n` or `FAIL k/n: <items>` (plus `· rules n/m: <cards>` for P0/P1 rule cards no test names), exits 0 only when all pass, and runs nothing in a plan that is not yours.
 
 ## Limits to know
 
 - **Rules are probabilistic.** That's why the review has a hook. For any other rule you need guaranteed, use a hook in that project.
 - **Claude's own merges count as outside changes.** A merge, pull, reset or rebase moves the gate's base even when Claude ran it.
 - **Gate cost on big repos.** Each check runs `git add -A` into a private index and object store, skipping untracked files over 2MB, so many untracked files or Git LFS clean filters still slow it down. Turn it off with `/starter:setup` or the env setting above.
-- **A plan is only as good as its checks.** The plan review looks at whether each check can run and tests its item; it cannot know that a passing check means the work is right.
+- **A plan is only as good as its checks.** The plan review looks at whether each check can run and tests its item; it cannot know that a passing check means the work is right. Likewise `plan-check.mjs` only finds that a file names each rule card; that the test fails without the rule is the writer's red-first run and the code review's to see.
 - **A user-only skill's text and a compaction.** Whether `/starter:cycle`'s text survives a context compaction is unverified. Resuming with `/starter:cycle` and re-reading the plan file at every phase are the guard.
 - **The gate does not see a review that continues.** It counts a review when the `reviewer` is started or `code-review` is called. A second review round sent to the same reviewer (continuing that agent, as the cycle does) is not seen, so the gate may ask once more; Claude answers in one line that the review is running.
 - **Removed skills.** `/starter:fan-out` and `/starter:diff-walkthrough` are gone in 0.10 for anyone who used them.

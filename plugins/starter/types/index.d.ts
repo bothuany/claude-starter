@@ -9,6 +9,8 @@ export type Plan = {
   items: number
   ticked: number
   log: { key: string; text: string }[]
+  // The P0/P1 rule cards, in order, and whether each names its test.
+  rules?: { id: string; tested: boolean }[]
 }
 
 // The open plan: its normalised path and the last good parse of it.

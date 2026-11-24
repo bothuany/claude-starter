@@ -2,7 +2,7 @@
 
 A small Claude Code setup. It asks before it assumes, reviews risky changes, and gives a piece of work a named cycle: a plan file, a clean-context build, and reviews that start fresh.
 
-[![version 0.11.2](https://img.shields.io/badge/version-0.11.2-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
+[![version 0.12.0](https://img.shields.io/badge/version-0.12.0-555?style=flat-square)](plugins/starter/.claude-plugin/plugin.json) [![MIT](https://img.shields.io/badge/license-MIT-555?style=flat-square)](LICENSE)
 
 ```bash
 claude plugin marketplace add bothuany/claude-starter
@@ -22,9 +22,9 @@ Works from your next session. Nothing is written to your `CLAUDE.md`. Needs Node
 ```
 
 1. **It asks.** A few questions at a time, until the decisions are yours and not guesses.
-2. **It writes the plan** to `docs/plans/rate-limiter.md`. Every item carries a command that proves it is done.
+2. **It writes the plan** to `docs/plans/rate-limiter.md`. Every business rule becomes a card with its source and boundary examples, and every item carries a command that proves it is done.
 3. **A reviewer reads the plan, then you do.** Nothing is built until you approve.
-4. **A writer builds it** in a clean context, on the branch `cycle/rate-limiter`, ticking each item when its check passes.
+4. **A writer builds it** in a clean context, on the branch `cycle/rate-limiter`: each rule's test first, seen failing, then the items, ticking each when its check passes.
 5. **A reviewer reads the code.** The writer fixes what it finds.
 6. **The probe runs the change for real** (the request or command the plan names, against a running system) and logs what came back, then reruns every check. If it can't run here, it says so instead of calling the checks a probe.
 
