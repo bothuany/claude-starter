@@ -1,0 +1,39 @@
+README.md
+  s_fd78d1118bf5f6::t_9d1d4a75c4be66 5,25,27
+docs/DETAILS.md
+  s_fd78d1118bf5f6::t_cc42b2e05c76a6 99-102,112,115,357,364
+plugins/starter/.claude-plugin/plugin.json
+  s_fd78d1118bf5f6::t_b5c81707c39aae 4
+plugins/starter/agents/reviewer.md
+  s_fd78d1118bf5f6::t_4f0076a6810a03 29
+plugins/starter/agents/writer.md
+  s_fd78d1118bf5f6::t_b4e8c587da3397 22-23
+plugins/starter/hooks/register.test.tsx
+  s_fd78d1118bf5f6::t_168fa25a7b2ed7 1144-1166
+plugins/starter/hooks/register.tsx
+  s_fd78d1118bf5f6::t_f98e52ab52acb5 100,120,132-138,149-150,707-721
+plugins/starter/scripts/plan-check.mjs
+  s_fd78d1118bf5f6::t_c640437a4a7863 2-4,23-24,28,41-48,56,113-133
+plugins/starter/skills/cycle/SKILL.md
+  s_fd78d1118bf5f6::t_e0c0c7e578f852 18-21,36-43
+plugins/starter/types/index.d.ts
+  s_fd78d1118bf5f6::t_3ffd3dfd00a725 12-13
+test/scripts.test.mjs
+  s_fd78d1118bf5f6::t_1d082d8a361d86 960-989
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "242108ce8cbcf8ed66a6da9ec7c516a6e3b761f4",
+  "prompts": {},
+  "sessions": {
+    "s_fd78d1118bf5f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7d412173-e6f8-42b8-ad95-9bc812b61e8e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
