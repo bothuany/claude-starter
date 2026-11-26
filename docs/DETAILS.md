@@ -407,7 +407,7 @@ Then undo what setup wrote, if you want it gone. If you use `CLAUDE_CONFIG_DIR`,
 
 - If you used a version before 0.8 and never ran setup since, delete the block between `claude-starter:begin` and `claude-starter:end` in `~/.claude/CLAUDE.md`.
 - If an older version of setup set `worktree.baseRef` (before 0.10), remove it from the project's `.claude/settings.local.json` or from `~/.claude/settings.json`.
-- If setup added them, run `claude mcp remove --scope user context7`; an older version of setup could also add obscura, remove it with `claude mcp remove --scope user obscura`.
+- If setup added them, run `claude mcp remove --scope user context7`.
 - If you added them, run `claude plugin uninstall i-have-adhd@claude-starter` and `claude plugin uninstall ponytail@claude-starter`.
 - Delete the `*.starter-backup` files.
 

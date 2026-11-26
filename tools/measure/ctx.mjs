@@ -28,7 +28,7 @@ const CAT = name =>
   : /^(Bash|PowerShell)$/.test(name) ? 'shell'
   : /^(Agent|Task|Workflow)$/.test(name) ? 'agent'
   : /^(Edit|Write|MultiEdit|NotebookEdit)$/.test(name) ? 'edit'
-  : /^(WebFetch|WebSearch)$|browser|obscura/i.test(name) ? 'web'
+  : /^(WebFetch|WebSearch)$|browser/i.test(name) ? 'web'
   : /^mcp__/.test(name) ? 'mcp'
   : name === 'Skill' ? 'skill' : 'other'
 const len = c => (typeof c === 'string' ? c.length : Array.isArray(c) ? c.reduce((n, b) => n + (typeof b?.text === 'string' ? b.text.length : b?.type === 'image' ? 6000 : 0), 0) : 0)
