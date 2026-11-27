@@ -314,6 +314,23 @@ On the small plan (4 parts of about 100–150 lines, 44 hidden tests), the build
 The gate reliably gets the review to run, at about +29% cost ($1.12 vs $0.87). With k = 1, the solved column is noise: the baseline alone moved from 1/4 to 2/4. Don't read it as a success-rate gain. openlibrary stayed under the threshold, so the gate never blocked there. On Opus small tasks the gate never had to fire, and no review ran twice.
 </details>
 
+<details>
+<summary><b>Try-to-break: reviewer vs a Haiku swarm</b>: 5 seeded defects + 1 clean tree, k = 3 (k = 5 where split)</summary>
+
+Each arm got a tree with a known defect it was not told about (four from this repo's history, one from vuls on SWE-bench Pro) or a tree with none (`bb7f221`), and had to report findings as runnable repros. The scorer ran every repro on the seeded, fixed and current trees. Opus led every arm.
+
+| Arm | Seeded defect found | False positives per run | Cost per trial |
+|---|---|---|---|
+| A: the plugin's `reviewer` (one Opus pass) | **18/21** | ≤ 0.2 | $0.31–0.42 ($1.02 on the clean tree) |
+| B: 4 Haiku breakers by surface + Sonnet triage | 10/21 | 0 | $0.33–0.59 |
+| C: one Sonnet breaker | 4/21 | 0 | $0.10–0.16 |
+
+- All three tie on the easiest entry (3/3). On the rest, B found the seeded defect in 1/5, 1/3, 4/5 and 1/5 runs, against 3/5, 3/3, 5/5 and 4/5 for A.
+- B reported defects that A never did, in 2 or more runs. All of them are repros that also fail on today's code. The largest cluster (7 runs) doesn't reproduce: the gate stays silent in that repro even with no review call at all. The others need unusual setups (running a script through a symlink, `core.logAllRefUpdates=false`) and weren't verified.
+- The pre-set bar for adopting B was: one more defect than A, at most 1 false positive per run, at most 2× A's cost. The false-positive and cost parts pass; the extra defect isn't shown. So the swarm stays out.
+- k is 3–5, from one Opus build. A repro that fails on all three trees isn't proof of a defect unless it is run against a control.
+</details>
+
 ### Not measured yet
 
 - **Ask-first behaviour interactively.** Headless runs can't ask. In one manual check, with the rules Claude asked 2 questions before coding; without them it coded at once.
@@ -329,7 +346,7 @@ The fan-out items that stood here (Sonnet review against Opus review, a plan too
 
 - **The cycle's effect on cost and quality.** No run compared a cycle with the same work done in one session.
 - **Plan review by a model.** Whether a `reviewer` pass over the plan file finds the problems that would have cost a build is not measured.
-- **The try-to-break probe.** The reviewer's attempt to break a high-risk change has not been compared with a review without it.
+- **The try-to-break probe without the reviewer.** The reviewer's probe beat a Haiku swarm and a single Sonnet breaker on seeded defects ([the evidence](#the-evidence)), but it has not been compared with a review that skips the probe.
 - **The reviewer at medium effort.** 0.9 ran it at high; the drop to medium is for cost, and what it misses is not measured.
 - **The reader on Sonnet.** 0.9 ran it on Opus; whether Sonnet's reports are as reliable is not measured.
 
